@@ -17,9 +17,10 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
     const appSecret = configService.get<string>('FACEBOOK_APP_SECRET');
 
     // Build callback URL
-    const baseUrl = process.env.NODE_ENV === 'production' 
-      ? 'https://your-domain.com' 
-      : 'http://localhost:5555';
+    const baseUrl =
+      process.env.NODE_ENV === 'production'
+        ? 'https://your-domain.com'
+        : 'http://localhost:5555';
     const callbackURL = `${baseUrl}/api/auth/facebook/callback`;
 
     console.log('Facebook OAuth Config:', {
@@ -36,7 +37,7 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
 
       throw new Error(
         `Missing required Facebook OAuth configuration: ${missingVars.join(', ')}. ` +
-        'Please check your .env file and ensure these variables are set.',
+          'Please check your .env file and ensure these variables are set.',
       );
     }
 
@@ -66,7 +67,9 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
 
       const user = {
         email: emails[0].value,
-        name: `${name?.givenName || ''} ${name?.familyName || ''}`.trim() || 'Facebook User',
+        name:
+          `${name?.givenName || ''} ${name?.familyName || ''}`.trim() ||
+          'Facebook User',
         avatar: photos?.[0]?.value || null,
         provider: 'facebook',
         accessToken,
@@ -75,7 +78,7 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
       };
 
       this.logger.log(`Facebook OAuth validation for user: ${user.email}`);
-      
+
       const validatedUser = await this.authService.validateOAuthUser(user);
       done(null, validatedUser);
     } catch (error) {

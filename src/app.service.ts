@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 @Injectable()
 export class AppService {
   getHello(): string {
-    return 'Bash Runner NestJS API is running! 🚀';
+    return 'StarGate NestJS API is running! 🚀';
   }
 
   getHealth() {

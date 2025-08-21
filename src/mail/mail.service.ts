@@ -37,7 +37,7 @@ export class MailService {
       </head>
       <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-          <h1 style="margin: 0; font-size: 28px;">Welcome to Bash Runner! 🚀</h1>
+          <h1 style="margin: 0; font-size: 28px;">Welcome to StarGate! 🚀</h1>
         </div>
         
         <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #e9ecef;">
@@ -75,7 +75,7 @@ export class MailService {
 
     const mailOptions: EmailOptions = {
       to: email,
-      subject: '🔐 Verify Your Email Address - Bash Runner',
+      subject: '🔐 Verify Your Email Address - StarGate',
       html,
     };
 
@@ -141,7 +141,7 @@ export class MailService {
 
     const mailOptions: EmailOptions = {
       to: email,
-      subject: '🔑 Reset Your Password - Bash Runner',
+      subject: '🔑 Reset Your Password - StarGate',
       html,
     };
 

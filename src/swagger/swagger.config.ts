@@ -2,7 +2,7 @@
 import { DocumentBuilder } from '@nestjs/swagger';
 
 export const SWAGGER_CONFIG = {
-  title: 'Bash Runner NestJS API',
+  title: 'StarGate NestJS API',
   description:
     'A robust backend API with authentication, command execution, and real-time updates',
   version: '1.0.0',
@@ -103,7 +103,6 @@ export function createSwaggerConfig() {
       },
       'Facebook OAuth',
     );
-
 
   return config;
 }

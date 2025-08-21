@@ -71,7 +71,7 @@ export interface TwoFactorStatusResponse {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly appName = 'Bash Runner';
+  private readonly appName = 'StarGate';
 
   private readonly totpOptions = {
     window: 2,
@@ -352,7 +352,7 @@ export class AuthService {
       this.configService.get<string>('JWT_EXPIRES_IN') || '15m';
     const refreshTokenExpiresIn = rememberMe
       ? this.configService.get<string>('JWT_REFRESH_REMEMBER_ME_EXPIRES_IN') ||
-      '30d'
+        '30d'
       : this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
 
     const accessToken = await this.jwtService.signAsync(payload, {
@@ -712,15 +712,15 @@ export class AuthService {
 
       throw new UnauthorizedException(
         `Invalid verification code. Server expected: ${currentCode} (${timeInfo}). ` +
-        'Please check your device time synchronization.',
+          'Please check your device time synchronization.',
       );
     }
 
     const backupCodes = skipBackup
       ? []
       : Array.from({ length: 8 }, () =>
-        Math.random().toString(36).slice(2, 10).toUpperCase(),
-      );
+          Math.random().toString(36).slice(2, 10).toUpperCase(),
+        );
 
     const hashedBackupCodes = await Promise.all(
       backupCodes.map((code) => bcrypt.hash(code, 12)),

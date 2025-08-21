@@ -7,10 +7,10 @@ import { MailModule } from '../mail/mail.module';
 import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { FacebookStrategy } from './strategies/facebook.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
-import { FacebookStrategy } from './strategies/facebook.strategy';
 
 @Module({
   imports: [
@@ -53,12 +53,12 @@ import { FacebookStrategy } from './strategies/facebook.strategy';
           secret,
           signOptions: {
             expiresIn,
-            issuer: 'bash-runner-api',
-            audience: 'bash-runner-client',
+            issuer: 'stargate-api',
+            audience: 'stargate-client',
           },
           verifyOptions: {
-            issuer: 'bash-runner-api',
-            audience: 'bash-runner-client',
+            issuer: 'stargate-api',
+            audience: 'stargate-client',
           },
         };
       },
@@ -68,7 +68,13 @@ import { FacebookStrategy } from './strategies/facebook.strategy';
     MailModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, LocalStrategy, JwtStrategy, GoogleStrategy, FacebookStrategy],
+  providers: [
+    AuthService,
+    LocalStrategy,
+    JwtStrategy,
+    GoogleStrategy,
+    FacebookStrategy,
+  ],
   exports: [AuthService, JwtModule, PassportModule],
 })
 export class AuthModule {}
