@@ -1,0 +1,108 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// prisma/schema.prisma
+model User {
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  name               String
+  password           String?
+  avatar             String?
+  provider           String   @default("local")
+  isEmailVerified    Boolean  @default(false)
+  emailVerifiedAt    DateTime?
+  verificationToken  String?  @unique
+  refreshTokenHash   String?
+  twoFactorSecret    String?
+  resetToken         String?  @unique
+  resetTokenExpires  DateTime?
+  isTwoFactorEnabled Boolean @default(false)
+  backupCodes        String[] @default([])
+  roles              String[] @default(["user"])
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  sgtmContainers     SgtmContainer[] @relation("UserContainers")
+
+  // Relations for impersonation
+  impersonationSessionsAsAdmin  ImpersonationSession[] @relation("ImpersonationSessionAsAdmin")
+  impersonationSessionsAsTarget ImpersonationSession[] @relation("ImpersonationSessionAsTarget")
+  impersonationAuditsAsAdmin    ImpersonationAudit[]   @relation("ImpersonationAuditAsAdmin")
+  impersonationAuditsAsTarget   ImpersonationAudit[]   @relation("ImpersonationAuditAsTarget")
+
+  @@map("users")
+}
+
+model SgtmContainer {
+  id          String         @id @default(cuid())
+  name        String         // container name prefix (e.g., gtm-unified)
+  fullName    String         // full container name (e.g., gtm-unified-xyz)
+  userId      String
+  user        User           @relation("UserContainers", fields: [userId], references: [id])
+  status      ContainerStatus @default(CREATED)
+  action      String?        // run, list, delete
+  subdomain   String?        // e.g., tags.bikobazaar.xyz
+  config      String?        // base64-encoded config string
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  
+  @@map("sgtm_containers")
+}
+
+enum ContainerStatus {
+  CREATED
+  PENDING
+  RUNNING
+  STOPPED
+  ERROR
+  DELETED
+}
+
+model ImpersonationSession {
+  id        String   @id @default(cuid())
+  adminId   String
+  targetId  String   @unique
+  startedAt DateTime @default(now())
+  expiresAt DateTime
+  reason    String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Explicit relation names to resolve ambiguity
+  admin   User @relation("ImpersonationSessionAsAdmin", fields: [adminId], references: [id])
+  target  User @relation("ImpersonationSessionAsTarget", fields: [targetId], references: [id])
+
+  @@index([adminId])
+  @@index([targetId])
+  @@index([expiresAt])
+}
+
+model ImpersonationAudit {
+  id          String   @id @default(cuid())
+  adminId     String
+  adminEmail  String
+  targetId    String
+  targetEmail String
+  action      String   // 'start' or 'stop'
+  reason      String?
+  ipAddress   String?
+  userAgent   String?
+  timestamp   DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  // Explicit relation names
+  admin   User @relation("ImpersonationAuditAsAdmin", fields: [adminId], references: [id])
+  target  User @relation("ImpersonationAuditAsTarget", fields: [targetId], references: [id])
+
+  @@index([adminId, timestamp])
+  @@index([targetId, timestamp])
+  @@index([action, timestamp])
+}

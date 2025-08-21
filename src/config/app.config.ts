@@ -1,0 +1,113 @@
+// src/config/app.config.ts
+
+/**
+ * Configuration factory function that validates environment variables
+ * and returns the application configuration.
+ * 
+ * @returns The application configuration object
+ * @throws Error if required environment variables are missing or invalid
+ */
+export const appConfig = () => {
+  // Log environment variables for debugging
+  console.log('Environment Variables Check:', {
+    JWT_SECRET: process.env.JWT_SECRET ? 'SET' : 'NOT SET',
+    JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET ? 'SET' : 'NOT SET',
+    DATABASE_URL: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
+    NODE_ENV: process.env.NODE_ENV,
+  });
+
+  // Validate required environment variables
+  const requiredEnvVars = ['DATABASE_URL', 'JWT_SECRET', 'JWT_REFRESH_SECRET'];
+  const missingVars = requiredEnvVars.filter((varName) => !process.env[varName]);
+
+  if (missingVars.length > 0) {
+    throw new Error(
+      `Missing required environment variables: ${missingVars.join(', ')}\n` +
+      'Please check your .env file and ensure these variables are set.'
+    );
+  }
+
+  // Validate JWT secret lengths
+  if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+    throw new Error('JWT_SECRET must be at least 32 characters long');
+  }
+
+  if (process.env.JWT_REFRESH_SECRET && process.env.JWT_REFRESH_SECRET.length < 32) {
+    throw new Error('JWT_REFRESH_SECRET must be at least 32 characters long');
+  }
+
+  return {
+    // Server configuration
+    port: parseInt(process.env.PORT ?? '5555', 10),
+    environment: process.env.NODE_ENV ?? 'development',
+
+    // Database configuration
+    database: {
+      url: process.env.DATABASE_URL,
+    },
+
+    // JWT configuration - Exposed at root level for easier access
+    JWT_SECRET: process.env.JWT_SECRET,
+    JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET,
+    JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN ?? '15m',
+
+    // JWT configuration object
+    jwt: {
+      secret: process.env.JWT_SECRET,
+      expiresIn: process.env.JWT_EXPIRES_IN ?? '15m',
+      rememberMeExpiresIn: process.env.JWT_REMEMBER_ME_EXPIRES_IN ?? '7d',
+      refreshSecret: process.env.JWT_REFRESH_SECRET,
+      refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
+      refreshRememberMeExpiresIn: process.env.JWT_REFRESH_REMEMBER_ME_EXPIRES_IN ?? '30d',
+    },
+
+    // Google OAuth configuration
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID ?? '',
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+      callbackUrl: process.env.GOOGLE_CALLBACK_URL ?? 'http://localhost:5555/auth/google/callback',
+    },
+    // Facebook OAuth configuration
+    facebook: {
+      appId: process.env.FACEBOOK_APP_ID ?? '',
+      appSecret: process.env.FACEBOOK_APP_SECRET ?? '',
+      callbackUrl: process.env.FACEBOOK_CALLBACK_URL ?? 'http://localhost:5555/api/auth/facebook/callback',
+    },
+
+    // Frontend configuration
+    frontend: {
+      url: process.env.FRONTEND_URL ?? 'http://localhost:5173',
+    },
+
+    // CORS configuration
+    cors: {
+      origin: process.env.CORS_ORIGIN ?? process.env.FRONTEND_URL ?? 'http://localhost:5173',
+      credentials: true,
+    },
+
+    // Rate limiting configuration
+    throttle: {
+      ttl: parseInt(process.env.THROTTLE_TTL ?? '60000', 10),
+      limit: parseInt(process.env.THROTTLE_LIMIT ?? '100', 10),
+    },
+
+    // Runner configuration
+    runner: {
+      apiUrl: process.env.RUNNER_API_URL ?? 'http://localhost:4000',
+    },
+
+    // SMTP configuration
+    smtp: {
+      host: process.env.SMTP_HOST ?? 'smtp.gmail.com',
+      port: parseInt(process.env.SMTP_PORT ?? '587', 10),
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+
+    // Impersonation configuration
+    IMPERSONATION_ALLOWED_ROLES: (process.env.IMPERSONATION_ALLOWED_ROLES || 'admin,crm_agent,developer')
+      .split(',')
+      .map((role) => role.trim()),
+    IMPERSONATION_TIMEOUT_MINUTES: parseInt(process.env.IMPERSONATION_TIMEOUT_MINUTES || '60', 10),
+  };
+};
