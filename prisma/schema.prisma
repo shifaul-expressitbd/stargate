@@ -10,24 +10,23 @@ datasource db {
 
 // prisma/schema.prisma
 model User {
-  id                 String   @id @default(cuid())
-  email              String   @unique
+  id                 String          @id @default(cuid())
+  email              String          @unique
   name               String
   password           String?
   avatar             String?
-  provider           String   @default("local")
-  isEmailVerified    Boolean  @default(false)
+  isEmailVerified    Boolean         @default(false)
   emailVerifiedAt    DateTime?
-  verificationToken  String?  @unique
+  verificationToken  String?         @unique
   refreshTokenHash   String?
   twoFactorSecret    String?
-  resetToken         String?  @unique
+  resetToken         String?         @unique
   resetTokenExpires  DateTime?
-  isTwoFactorEnabled Boolean @default(false)
-  backupCodes        String[] @default([])
-  roles              String[] @default(["user"])
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  isTwoFactorEnabled Boolean         @default(false)
+  backupCodes        String[]        @default([])
+  roles              String[]        @default(["user"])
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
   sgtmContainers     SgtmContainer[] @relation("UserContainers")
 
   // Relations for impersonation
@@ -36,22 +35,55 @@ model User {
   impersonationAuditsAsAdmin    ImpersonationAudit[]   @relation("ImpersonationAuditAsAdmin")
   impersonationAuditsAsTarget   ImpersonationAudit[]   @relation("ImpersonationAuditAsTarget")
 
+  // Relations for multiple auth providers
+  authProviders AuthProvider[]
+
   @@map("users")
 }
 
+model AuthProvider {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Provider details
+  provider   AuthProviderType // Auth provider type
+  providerId String // OAuth provider's user ID (e.g., googleId, facebookId)
+  email      String? // Email from provider (may differ from user's email)
+
+  // OAuth tokens and data
+  accessToken    String?
+  refreshToken   String?
+  tokenExpiresAt DateTime?
+
+  // Provider-specific data stored as JSON
+  providerData Json? // Additional provider-specific data
+
+  // Metadata
+  isPrimary  Boolean   @default(false) // Whether this is the user's primary provider
+  linkedAt   DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@unique([userId, provider]) // One provider type per user
+  @@index([userId])
+  @@index([provider])
+  @@index([providerId])
+  @@map("auth_providers")
+}
+
 model SgtmContainer {
-  id          String         @id @default(cuid())
-  name        String         // container name prefix (e.g., gtm-unified)
-  fullName    String         // full container name (e.g., gtm-unified-xyz)
-  userId      String
-  user        User           @relation("UserContainers", fields: [userId], references: [id])
-  status      ContainerStatus @default(CREATED)
-  action      String?        // run, list, delete
-  subdomain   String?        // e.g., tags.bikobazaar.xyz
-  config      String?        // base64-encoded config string
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  
+  id        String          @id @default(cuid())
+  name      String // container name prefix (e.g., gtm-unified)
+  fullName  String // full container name (e.g., gtm-unified-xyz)
+  userId    String
+  user      User            @relation("UserContainers", fields: [userId], references: [id])
+  status    ContainerStatus @default(CREATED)
+  action    String? // run, list, delete
+  subdomain String? // e.g., tags.bikobazaar.xyz
+  config    String? // base64-encoded config string
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
   @@map("sgtm_containers")
 }
 
@@ -62,6 +94,17 @@ enum ContainerStatus {
   STOPPED
   ERROR
   DELETED
+}
+
+enum AuthProviderType {
+  LOCAL
+  GOOGLE
+  FACEBOOK
+  GITHUB
+  TWITTER
+  LINKEDIN
+  MICROSOFT
+  APPLE
 }
 
 model ImpersonationSession {
@@ -77,8 +120,8 @@ model ImpersonationSession {
   updatedAt DateTime @updatedAt
 
   // Explicit relation names to resolve ambiguity
-  admin   User @relation("ImpersonationSessionAsAdmin", fields: [adminId], references: [id])
-  target  User @relation("ImpersonationSessionAsTarget", fields: [targetId], references: [id])
+  admin  User @relation("ImpersonationSessionAsAdmin", fields: [adminId], references: [id])
+  target User @relation("ImpersonationSessionAsTarget", fields: [targetId], references: [id])
 
   @@index([adminId])
   @@index([targetId])
@@ -91,7 +134,7 @@ model ImpersonationAudit {
   adminEmail  String
   targetId    String
   targetEmail String
-  action      String   // 'start' or 'stop'
+  action      String // 'start' or 'stop'
   reason      String?
   ipAddress   String?
   userAgent   String?
@@ -99,8 +142,8 @@ model ImpersonationAudit {
   createdAt   DateTime @default(now())
 
   // Explicit relation names
-  admin   User @relation("ImpersonationAuditAsAdmin", fields: [adminId], references: [id])
-  target  User @relation("ImpersonationAuditAsTarget", fields: [targetId], references: [id])
+  admin  User @relation("ImpersonationAuditAsAdmin", fields: [adminId], references: [id])
+  target User @relation("ImpersonationAuditAsTarget", fields: [targetId], references: [id])
 
   @@index([adminId, timestamp])
   @@index([targetId, timestamp])

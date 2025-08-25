@@ -35,6 +35,7 @@ export class SwaggerService implements OnModuleInit {
       'http://localhost:5555',
     );
     const googleClientId = this.configService.get('GOOGLE_CLIENT_ID');
+    const githubClientId = this.configService.get('GITHUB_CLIENT_ID');
 
     SwaggerModule.setup('api/docs', this.app, document, {
       swaggerOptions: {
@@ -48,12 +49,18 @@ export class SwaggerService implements OnModuleInit {
           // { 'impersonate-refresh-token': [] },
           { 'Google OAuth': ['openid', 'email', 'profile'] },
           { 'Facebook OAuth': ['email', 'public_profile'] },
+          { 'GitHub OAuth': ['user:email', 'read:user'] },
         ],
         oauth: {
           clientId: googleClientId,
           redirectUrl: `${baseUrl}/api/auth/google/callback`,
           usePkceWithAuthorizationCodeGrant: true,
           scopes: ['openid', 'email', 'profile'],
+        },
+        oauth2RedirectUrl: `${baseUrl}/api/docs/oauth2-redirect.html`,
+        initOAuth: {
+          clientId: githubClientId || googleClientId,
+          usePkceWithAuthorizationCodeGrant: true,
         },
       },
       customSiteTitle: SWAGGER_CONFIG.title,

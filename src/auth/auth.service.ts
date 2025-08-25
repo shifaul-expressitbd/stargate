@@ -135,6 +135,30 @@ export class AuthService {
       if (!isPasswordValid)
         throw new UnauthorizedException('Invalid credentials');
 
+      // Ensure LOCAL auth provider exists for the user
+      const existingLocalProvider = await this.prisma.authProvider.findUnique({
+        where: {
+          userId_provider: {
+            userId: user.id,
+            provider: this.mapStringToProviderEnum('local'),
+          },
+        },
+      });
+
+      if (!existingLocalProvider) {
+        // Create LOCAL auth provider if it doesn't exist
+        await this.prisma.authProvider.create({
+          data: {
+            userId: user.id,
+            provider: this.mapStringToProviderEnum('local'),
+            providerId: user.email,
+            email: user.email,
+            isPrimary: false, // Don't override existing primary provider
+          },
+        });
+        this.logger.log(`✅ Created LOCAL auth provider for user: ${email}`);
+      }
+
       this.logger.log(`✅ User validated: ${email}`);
       const { password: _, ...result } = user;
       return result;
@@ -158,7 +182,7 @@ export class AuthService {
       }
 
       const hashedPassword = await bcrypt.hash(registerDto.password, 12);
-      const verificationToken = require('crypto')
+      const emailVerificationToken = require('crypto')
         .randomBytes(32)
         .toString('hex');
 
@@ -169,12 +193,40 @@ export class AuthService {
         avatar: registerDto.avatar?.trim() || null,
         provider: 'local',
         isEmailVerified: false,
-        verificationToken,
+        verificationToken: emailVerificationToken,
       });
 
-      this.sendVerificationEmailAsync(user.email, verificationToken);
+      // Create LOCAL auth provider for the user
+      await this.prisma.authProvider.create({
+        data: {
+          userId: user.id,
+          provider: this.mapStringToProviderEnum('local'),
+          providerId: user.email, // Use email as providerId for local auth
+          email: user.email,
+          isPrimary: true, // Set as primary for local registration
+        },
+      });
+
+      this.sendVerificationEmailAsync(user.email, emailVerificationToken);
       const tokens = await this.generateTokens(user.id, user.email, user.roles);
-      const { password: _, verificationToken: __, ...userResult } = user;
+
+      // Get user with auth providers
+      const userWithProviders = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        include: {
+          authProviders: {
+            select: {
+              provider: true,
+              isPrimary: true,
+              linkedAt: true,
+            },
+          },
+        },
+      });
+
+      const { ...userResult } = userWithProviders;
+      const primaryProvider =
+        userResult.authProviders?.find((p) => p.isPrimary)?.provider || 'local';
 
       return {
         user: {
@@ -182,7 +234,7 @@ export class AuthService {
           email: userResult.email,
           name: userResult.name,
           avatar: userResult.avatar,
-          provider: userResult.provider,
+          provider: primaryProvider,
           isEmailVerified: userResult.isEmailVerified,
           isTwoFactorEnabled: userResult.isTwoFactorEnabled,
         },
@@ -227,13 +279,20 @@ export class AuthService {
     );
     const { password, verificationToken, twoFactorSecret, ...userResult } =
       user;
+
+    // Get primary provider
+    const primaryProvider = await this.prisma.authProvider.findFirst({
+      where: { userId: user.id, isPrimary: true },
+      select: { provider: true },
+    });
+
     return {
       user: {
         id: userResult.id,
         email: userResult.email,
         name: userResult.name,
         avatar: userResult.avatar,
-        provider: userResult.provider,
+        provider: primaryProvider?.provider || 'local',
         isEmailVerified: userResult.isEmailVerified,
         isTwoFactorEnabled: userResult.isTwoFactorEnabled,
       },
@@ -274,13 +333,19 @@ export class AuthService {
       const { password, verificationToken, twoFactorSecret, ...userResult } =
         user;
 
+      // Get primary provider
+      const primaryProvider = await this.prisma.authProvider.findFirst({
+        where: { userId: user.id, isPrimary: true },
+        select: { provider: true },
+      });
+
       return {
         user: {
           id: userResult.id,
           email: userResult.email,
           name: userResult.name,
           avatar: userResult.avatar,
-          provider: userResult.provider,
+          provider: primaryProvider?.provider || 'local',
           isEmailVerified: userResult.isEmailVerified,
           isTwoFactorEnabled: userResult.isTwoFactorEnabled,
         },
@@ -317,13 +382,19 @@ export class AuthService {
       const { password, verificationToken, twoFactorSecret, ...userResult } =
         user;
 
+      // Get primary provider
+      const primaryProvider = await this.prisma.authProvider.findFirst({
+        where: { userId: user.id, isPrimary: true },
+        select: { provider: true },
+      });
+
       return {
         user: {
           id: userResult.id,
           email: userResult.email,
           name: userResult.name,
           avatar: userResult.avatar || null,
-          provider: userResult.provider,
+          provider: primaryProvider?.provider || 'local',
           isEmailVerified: userResult.isEmailVerified,
           isTwoFactorEnabled: userResult.isTwoFactorEnabled,
         },
@@ -445,13 +516,19 @@ export class AuthService {
         ...userResult
       } = user;
 
+      // Get primary provider
+      const primaryProvider = await this.prisma.authProvider.findFirst({
+        where: { userId: user.id, isPrimary: true },
+        select: { provider: true },
+      });
+
       return {
         user: {
           id: userResult.id,
           email: userResult.email,
           name: userResult.name,
           avatar: userResult.avatar,
-          provider: userResult.provider,
+          provider: primaryProvider?.provider || 'local',
           isEmailVerified: userResult.isEmailVerified,
           isTwoFactorEnabled: userResult.isTwoFactorEnabled,
         },
@@ -473,17 +550,27 @@ export class AuthService {
     name: string;
     avatar?: string;
     provider: string;
+    providerId: string;
+    accessToken?: string;
+    refreshToken?: string;
+    tokenExpiresAt?: Date;
+    providerData?: any;
   }) {
     try {
+      const providerEnum = this.mapStringToProviderEnum(oauthUser.provider);
+
+      // Find existing user by email
       let existingUser = await this.usersService.findByEmail(
         oauthUser.email.toLowerCase().trim(),
       );
+
       if (!existingUser) {
+        // Create new user if they don't exist
         existingUser = await this.usersService.create({
           email: oauthUser.email.toLowerCase().trim(),
           name: oauthUser.name.trim(),
           avatar: oauthUser.avatar,
-          provider: oauthUser.provider,
+          provider: oauthUser.provider, // Keep for backward compatibility
           isEmailVerified: true,
           emailVerifiedAt: new Date(),
           verificationToken: null,
@@ -491,9 +578,158 @@ export class AuthService {
       } else if (!existingUser.isEmailVerified) {
         await this.usersService.markEmailAsVerified(existingUser.id);
       }
+
+      // Check if this provider is already linked to the user
+      const existingProvider = await this.prisma.authProvider.findUnique({
+        where: {
+          userId_provider: {
+            userId: existingUser.id,
+            provider: providerEnum,
+          },
+        },
+      });
+
+      if (!existingProvider) {
+        // Link the new provider to the user
+        await this.prisma.authProvider.create({
+          data: {
+            userId: existingUser.id,
+            provider: providerEnum,
+            providerId: oauthUser.providerId,
+            email: oauthUser.email,
+            accessToken: oauthUser.accessToken,
+            refreshToken: oauthUser.refreshToken,
+            tokenExpiresAt: oauthUser.tokenExpiresAt,
+            providerData: oauthUser.providerData || {},
+            isPrimary: false, // Will be set to true if this is the first provider
+          },
+        });
+
+        // If user has no primary provider, make this one primary
+        const primaryProviderCount = await this.prisma.authProvider.count({
+          where: { userId: existingUser.id, isPrimary: true },
+        });
+
+        if (primaryProviderCount === 0) {
+          await this.setPrimaryProvider(existingUser.id, providerEnum);
+        }
+      } else {
+        // Update existing provider data
+        await this.prisma.authProvider.update({
+          where: { id: existingProvider.id },
+          data: {
+            accessToken: oauthUser.accessToken,
+            refreshToken: oauthUser.refreshToken,
+            tokenExpiresAt: oauthUser.tokenExpiresAt,
+            providerData:
+              oauthUser.providerData || existingProvider.providerData,
+            lastUsedAt: new Date(),
+          },
+        });
+      }
+
       return existingUser;
     } catch (error) {
+      this.logger.error('OAuth user validation failed:', error.message);
       throw new InternalServerErrorException('OAuth authentication failed');
+    }
+  }
+
+  private mapStringToProviderEnum(provider: string): any {
+    const providerMap: { [key: string]: any } = {
+      local: 'LOCAL',
+      google: 'GOOGLE',
+      facebook: 'FACEBOOK',
+      github: 'GITHUB',
+      twitter: 'TWITTER',
+      linkedin: 'LINKEDIN',
+      microsoft: 'MICROSOFT',
+      apple: 'APPLE',
+    };
+
+    const enumValue = providerMap[provider.toLowerCase()];
+    if (!enumValue) {
+      throw new Error(`Unsupported provider: ${provider}`);
+    }
+
+    return enumValue;
+  }
+
+  async setPrimaryProvider(userId: string, provider: any): Promise<void> {
+    // First, unset all primary flags for this user
+    await this.prisma.authProvider.updateMany({
+      where: { userId },
+      data: { isPrimary: false },
+    });
+
+    // Set the specified provider as primary
+    await this.prisma.authProvider.updateMany({
+      where: { userId, provider },
+      data: { isPrimary: true },
+    });
+  }
+
+  async getUserProviders(userId: string): Promise<any[]> {
+    return this.prisma.authProvider.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        provider: true,
+        email: true,
+        isPrimary: true,
+        linkedAt: true,
+        lastUsedAt: true,
+      },
+      orderBy: { linkedAt: 'asc' },
+    });
+  }
+
+  async unlinkProvider(userId: string, provider: string): Promise<void> {
+    const providerEnum = this.mapStringToProviderEnum(provider);
+
+    const providerRecord = await this.prisma.authProvider.findUnique({
+      where: {
+        userId_provider: {
+          userId,
+          provider: providerEnum,
+        },
+      },
+    });
+
+    if (!providerRecord) {
+      throw new NotFoundException(
+        `Provider ${provider} is not linked to this account`,
+      );
+    }
+
+    // Don't allow unlinking if it's the only provider and user has no password
+    const user = await this.usersService.findById(userId);
+    if (!user?.password) {
+      const providerCount = await this.prisma.authProvider.count({
+        where: { userId },
+      });
+
+      if (providerCount <= 1) {
+        throw new BadRequestException(
+          'Cannot unlink the only authentication provider without a password set. Please set a password first.',
+        );
+      }
+    }
+
+    await this.prisma.authProvider.delete({
+      where: { id: providerRecord.id },
+    });
+
+    // If the unlinked provider was primary, set another one as primary
+    if (providerRecord.isPrimary) {
+      const remainingProvider = await this.prisma.authProvider.findFirst({
+        where: { userId },
+        orderBy: { linkedAt: 'asc' },
+      });
+
+      if (remainingProvider) {
+        await this.setPrimaryProvider(userId, remainingProvider.provider);
+      }
     }
   }
 
@@ -503,6 +739,12 @@ export class AuthService {
       name: user.name,
       avatar: user.picture,
       provider: 'google',
+      providerId: user.googleId || user.id,
+      accessToken: user.accessToken,
+      refreshToken: user.refreshToken,
+      providerData: {
+        profile: user,
+      },
     });
     const result = await this.login(validatedUser);
     if ('requiresTwoFactor' in result) {
@@ -510,7 +752,7 @@ export class AuthService {
         '2FA required. Please complete setup first.',
       );
     }
-    return result as AuthResponse;
+    return result;
   }
 
   async facebookLogin(user: any): Promise<AuthResponse> {
@@ -519,6 +761,12 @@ export class AuthService {
       name: user.name,
       avatar: user.picture,
       provider: 'facebook',
+      providerId: user.facebookId || user.id,
+      accessToken: user.accessToken,
+      refreshToken: user.refreshToken,
+      providerData: {
+        profile: user,
+      },
     });
     const result = await this.login(validatedUser);
     if ('requiresTwoFactor' in result) {
@@ -526,7 +774,30 @@ export class AuthService {
         '2FA required. Please complete setup first.',
       );
     }
-    return result as AuthResponse;
+    return result;
+  }
+
+  async githubLogin(user: any): Promise<AuthResponse> {
+    const validatedUser = await this.validateOAuthUser({
+      email: user.email,
+      name: user.name,
+      avatar: user.avatar,
+      provider: 'github',
+      providerId: user.githubId || user.id,
+      accessToken: user.accessToken,
+      refreshToken: user.refreshToken,
+      providerData: {
+        profile: user,
+        username: user.username,
+      },
+    });
+    const result = await this.login(validatedUser);
+    if ('requiresTwoFactor' in result) {
+      throw new BadRequestException(
+        '2FA required. Please complete setup first.',
+      );
+    }
+    return result;
   }
 
   async generateTwoFactorSecret(
@@ -815,6 +1086,30 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(password, 12);
     await this.usersService.resetPassword(user.id, hashedPassword);
+
+    // Ensure LOCAL auth provider exists after password reset
+    const existingLocalProvider = await this.prisma.authProvider.findUnique({
+      where: {
+        userId_provider: {
+          userId: user.id,
+          provider: this.mapStringToProviderEnum('local'),
+        },
+      },
+    });
+
+    if (!existingLocalProvider) {
+      // Create LOCAL auth provider if it doesn't exist
+      await this.prisma.authProvider.create({
+        data: {
+          userId: user.id,
+          provider: this.mapStringToProviderEnum('local'),
+          providerId: user.email,
+          email: user.email,
+          isPrimary: true, // Set as primary for password reset
+        },
+      });
+      this.logger.log(`✅ Created LOCAL auth provider for user: ${user.email}`);
+    }
   }
 
   private async sendPasswordResetEmailAsync(email: string, token: string) {

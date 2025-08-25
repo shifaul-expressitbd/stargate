@@ -72,9 +72,13 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
           'Facebook User',
         avatar: photos?.[0]?.value || null,
         provider: 'facebook',
+        providerId: profile.id,
         accessToken,
         refreshToken,
-        facebookId: profile.id,
+        providerData: {
+          profile,
+          raw: profile._raw,
+        },
       };
 
       this.logger.log(`Facebook OAuth validation for user: ${user.email}`);

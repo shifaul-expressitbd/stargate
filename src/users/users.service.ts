@@ -44,7 +44,7 @@ export class UsersService {
     name: string;
     password?: string;
     avatar?: string | null;
-    provider: string;
+    provider?: string; // Keep for backward compatibility but don't use in DB
     isEmailVerified?: boolean;
     emailVerifiedAt?: Date | null;
     verificationToken?: string | null;
@@ -55,7 +55,6 @@ export class UsersService {
         name: data.name,
         password: data.password || null,
         avatar: data.avatar || null,
-        provider: data.provider,
         isEmailVerified: data.isEmailVerified ?? false,
         emailVerifiedAt: data.emailVerifiedAt || null,
         verificationToken: data.verificationToken || null,
@@ -82,7 +81,6 @@ export class UsersService {
         email: true,
         name: true,
         avatar: true,
-        provider: true,
         isEmailVerified: true,
         createdAt: true,
         updatedAt: true,

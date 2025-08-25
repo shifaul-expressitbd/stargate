@@ -14,7 +14,7 @@ import { AdminService } from './admin.service';
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         secret: configService.get('JWT_SECRET'),
-        signOptions: { 
+        signOptions: {
           expiresIn: configService.get('JWT_EXPIRES_IN', '15m'),
         },
       }),

@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
+  NotFoundException,
   Post,
   Query,
   Req,
@@ -60,7 +61,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
     private readonly configService: ConfigService,
-  ) { }
+  ) {}
 
   private createSuccessResponse<T>(message: string, data?: T): ApiResponse<T> {
     return {
@@ -529,7 +530,6 @@ export class AuthController {
     );
   }
 
-
   // ========== FACEBOOK OAUTH ==========
   @Public()
   @Get('facebook')
@@ -600,9 +600,10 @@ export class AuthController {
     },
   })
   getFacebookConfig(): ApiResponse {
-    const baseUrl = process.env.NODE_ENV === 'production'
-      ? 'https://your-domain.com'
-      : 'http://localhost:5555';
+    const baseUrl =
+      process.env.NODE_ENV === 'production'
+        ? 'https://your-domain.com'
+        : 'http://localhost:5555';
 
     const config = {
       appId: this.configService.get('FACEBOOK_APP_ID'),
@@ -615,7 +616,94 @@ export class AuthController {
       config,
     );
   }
-  
+
+  // ========== GITHUB OAUTH ==========
+  @Public()
+  @Get('github')
+  @ApiOperation({
+    summary: 'Initiate GitHub OAuth login',
+  })
+  @ApiResponse({
+    status: 302,
+    description: 'Redirect to GitHub OAuth',
+  })
+  @UseGuards(AuthGuard('github'))
+  async githubAuth() {
+    // Passport handles redirect automatically
+  }
+
+  @Public()
+  @Get('github/callback')
+  @ApiOperation({
+    summary: 'GitHub OAuth callback handler',
+  })
+  @ApiResponse({
+    status: 302,
+    description: 'Redirect to frontend with tokens',
+  })
+  @UseGuards(AuthGuard('github'))
+  async githubAuthRedirect(@Req() req: Request, @Res() res: Response) {
+    try {
+      const result = await this.authService.githubLogin(req.user);
+      const frontendUrl = this.configService.get(
+        'FRONTEND_URL',
+        'http://localhost:5173',
+      );
+
+      this.logger.log(`✅ GitHub OAuth successful for: ${result.user.email}`);
+
+      const redirectUrl = `${frontendUrl}/auth/callback?success=true&token=${result.accessToken}&refresh=${result.refreshToken}&user=${encodeURIComponent(JSON.stringify(result.user))}`;
+      return res.redirect(redirectUrl);
+    } catch (error) {
+      this.logger.error('GitHub OAuth callback error:', error.message);
+      const frontendUrl = this.configService.get(
+        'FRONTEND_URL',
+        'http://localhost:5173',
+      );
+
+      const redirectUrl = `${frontendUrl}/auth/callback?error=oauth_failed&message=${encodeURIComponent(error.message)}`;
+      return res.redirect(redirectUrl);
+    }
+  }
+
+  @Public()
+  @Get('github/config')
+  @ApiOperation({
+    summary: 'Get GitHub OAuth configuration',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'GitHub OAuth configuration',
+    schema: {
+      example: {
+        success: true,
+        message: 'GitHub OAuth configuration retrieved',
+        data: {
+          clientId: 'github-client-id',
+          callbackUrl: 'http://localhost:5555/api/auth/github/callback',
+          authUrl: 'http://localhost:5555/api/auth/github',
+        },
+      },
+    },
+  })
+  getGithubConfig(): ApiResponse {
+    const baseUrl =
+      process.env.NODE_ENV === 'production'
+        ? 'https://your-domain.com'
+        : 'http://localhost:5555';
+
+    const config = {
+      clientId: this.configService.get('GITHUB_CLIENT_ID'),
+      callbackUrl: `${baseUrl}/api/auth/github/callback`,
+      authUrl: `${baseUrl}/api/auth/github`,
+    };
+
+    return this.createSuccessResponse(
+      'GitHub OAuth configuration retrieved',
+      config,
+    );
+  }
+
   // ========== TWO-FACTOR AUTHENTICATION ==========
 
   @UseGuards(JwtAuthGuard)
@@ -1090,5 +1178,177 @@ export class AuthController {
         ),
       );
     }
+  }
+
+  // ========== PROVIDER MANAGEMENT ==========
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Get('providers')
+  @ApiOperation({
+    summary: 'Get all linked authentication providers for current user',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Providers retrieved successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Providers retrieved successfully',
+        data: [
+          {
+            id: 'provider-id',
+            provider: 'GOOGLE',
+            email: 'user@gmail.com',
+            isPrimary: true,
+            linkedAt: '2023-01-01T00:00:00.000Z',
+            lastUsedAt: '2023-01-01T00:00:00.000Z',
+          },
+        ],
+      },
+    },
+  })
+  async getUserProviders(@User('id') userId: string): Promise<ApiResponse> {
+    try {
+      const providers = await this.authService.getUserProviders(userId);
+      return this.createSuccessResponse(
+        'Providers retrieved successfully',
+        providers,
+      );
+    } catch (error) {
+      this.logger.error('Failed to get user providers:', error.message);
+      throw new BadRequestException(
+        this.createErrorResponse(
+          'Failed to get providers',
+          'PROVIDER_ERROR',
+          'GET_PROVIDERS_FAILED',
+        ),
+      );
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Post('providers/unlink')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Unlink an authentication provider' })
+  @ApiBody({
+    schema: {
+      example: {
+        provider: 'google',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Provider unlinked successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Provider unlinked successfully',
+        data: null,
+      },
+    },
+  })
+  async unlinkProvider(
+    @User('id') userId: string,
+    @Body() body: { provider: string },
+  ): Promise<ApiResponse> {
+    try {
+      await this.authService.unlinkProvider(userId, body.provider);
+      return this.createSuccessResponse('Provider unlinked successfully');
+    } catch (error) {
+      this.logger.error('Provider unlinking failed:', error.message);
+
+      if (error instanceof NotFoundException) {
+        throw new NotFoundException(
+          this.createErrorResponse(
+            error.message,
+            'PROVIDER_ERROR',
+            'PROVIDER_NOT_FOUND',
+          ),
+        );
+      }
+
+      if (error instanceof BadRequestException) {
+        throw new BadRequestException(
+          this.createErrorResponse(
+            error.message,
+            'PROVIDER_ERROR',
+            'UNLINK_FAILED',
+          ),
+        );
+      }
+
+      throw new BadRequestException(
+        this.createErrorResponse(
+          'Failed to unlink provider',
+          'PROVIDER_ERROR',
+          'UNLINK_PROVIDER_FAILED',
+        ),
+      );
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Post('providers/set-primary')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Set primary authentication provider' })
+  @ApiBody({
+    schema: {
+      example: {
+        provider: 'google',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Primary provider set successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Primary provider set successfully',
+        data: null,
+      },
+    },
+  })
+  async setPrimaryProvider(
+    @User('id') userId: string,
+    @Body() body: { provider: string },
+  ): Promise<ApiResponse> {
+    try {
+      const providerEnum = this.mapStringToProviderEnum(body.provider);
+      await this.authService.setPrimaryProvider(userId, providerEnum);
+      return this.createSuccessResponse('Primary provider set successfully');
+    } catch (error) {
+      this.logger.error('Setting primary provider failed:', error.message);
+      throw new BadRequestException(
+        this.createErrorResponse(
+          error.message,
+          'PROVIDER_ERROR',
+          'SET_PRIMARY_FAILED',
+        ),
+      );
+    }
+  }
+
+  private mapStringToProviderEnum(provider: string): any {
+    const providerMap: { [key: string]: any } = {
+      google: 'GOOGLE',
+      facebook: 'FACEBOOK',
+      github: 'GITHUB',
+      twitter: 'TWITTER',
+      linkedin: 'LINKEDIN',
+      microsoft: 'MICROSOFT',
+      apple: 'APPLE',
+    };
+
+    const enumValue = providerMap[provider.toLowerCase()];
+    if (!enumValue) {
+      throw new Error(`Unsupported provider: ${provider}`);
+    }
+
+    return enumValue;
   }
 }

@@ -22,8 +22,8 @@ export class SwaggerService implements OnModuleInit {
 
   private setupSwagger() {
     const config = createSwaggerConfig();
-    
-    SWAGGER_CONFIG.tags.forEach(tag => {
+
+    SWAGGER_CONFIG.tags.forEach((tag) => {
       config.addTag(tag.name, tag.description);
     });
 
@@ -33,7 +33,7 @@ export class SwaggerService implements OnModuleInit {
         persistAuthorization: true,
         tagsSorter: 'alpha',
         operationsSorter: 'alpha',
-        security: [{ 'JWT-auth': [] }]
+        security: [{ 'JWT-auth': [] }],
       },
     });
 

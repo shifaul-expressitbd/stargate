@@ -28,7 +28,7 @@ describe('UsersService', () => {
 
     service = module.get<UsersService>(UsersService);
     prismaService = module.get<PrismaService>(PrismaService);
-    
+
     jest.clearAllMocks();
   });
 
@@ -39,11 +39,11 @@ describe('UsersService', () => {
         email: 'test@example.com',
         name: 'Test User',
       };
-      
+
       mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
-      
+
       const result = await service.findByEmail('test@example.com');
-      
+
       expect(result).toEqual(mockUser);
       expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
         where: { email: 'test@example.com' },
@@ -52,9 +52,9 @@ describe('UsersService', () => {
 
     it('should return null if user not found', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(null);
-      
+
       const result = await service.findByEmail('test@example.com');
-      
+
       expect(result).toBeNull();
     });
   });
@@ -66,11 +66,11 @@ describe('UsersService', () => {
         email: 'test@example.com',
         name: 'Test User',
       };
-      
+
       mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
-      
+
       const result = await service.findById('1');
-      
+
       expect(result).toEqual(mockUser);
       expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
         where: { id: '1' },
@@ -85,18 +85,18 @@ describe('UsersService', () => {
         email: 'test@example.com',
         isEmailVerified: false,
       };
-      
+
       const updatedUser = {
         ...mockUser,
         isEmailVerified: true,
         emailVerifiedAt: expect.any(Date),
         verificationToken: null,
       };
-      
+
       mockPrismaService.user.update.mockResolvedValue(updatedUser);
-      
+
       const result = await service.markEmailAsVerified('1');
-      
+
       expect(result.isEmailVerified).toBe(true);
       expect(mockPrismaService.user.update).toHaveBeenCalledWith({
         where: { id: '1' },

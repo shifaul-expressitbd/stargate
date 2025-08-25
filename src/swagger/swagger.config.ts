@@ -102,6 +102,25 @@ export function createSwaggerConfig() {
         },
       },
       'Facebook OAuth',
+    )
+
+    // ✅ GitHub OAuth
+    .addOAuth2(
+      {
+        type: 'oauth2',
+        description: 'GitHub OAuth 2.0',
+        flows: {
+          authorizationCode: {
+            authorizationUrl: 'https://github.com/login/oauth/authorize',
+            tokenUrl: 'https://github.com/login/oauth/access_token',
+            scopes: {
+              'user:email': 'View your email address',
+              'read:user': 'View your basic profile info',
+            },
+          },
+        },
+      },
+      'GitHub OAuth',
     );
 
   return config;

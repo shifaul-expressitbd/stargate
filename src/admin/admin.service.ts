@@ -1,5 +1,10 @@
 // src/admin/admin.service.ts
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../database/prisma/prisma.service';
@@ -10,7 +15,7 @@ import { ImpersonationAuditLog } from './interfaces/impersonation-audit.interfac
 @Injectable()
 export class AdminService {
   private readonly logger = new Logger(AdminService.name);
-  
+
   constructor(
     private readonly usersService: UsersService,
     private readonly configService: ConfigService,
@@ -19,28 +24,31 @@ export class AdminService {
   ) {}
 
   private canImpersonate(roles: string[]): boolean {
-    const allowedRoles = this.configService.get<string[]>('IMPERSONATION_ALLOWED_ROLES', ['admin']);
-    return roles.some(role => allowedRoles.includes(role));
+    const allowedRoles = this.configService.get<string[]>(
+      'IMPERSONATION_ALLOWED_ROLES',
+      ['admin'],
+    );
+    return roles.some((role) => allowedRoles.includes(role));
   }
 
   async impersonateUser(
-    adminUserId: string, 
+    adminUserId: string,
     targetIdentifier: string, // Can be either email or userId
     reason?: string,
     ipAddress?: string,
-    userAgent?: string
+    userAgent?: string,
   ): Promise<{ targetUser: any }> {
     const adminUser = await this.usersService.findById(adminUserId);
     if (!adminUser) {
       throw new NotFoundException('Admin user not found');
     }
-    
+
     if (!this.canImpersonate(adminUser.roles)) {
       throw new BadRequestException('Insufficient permissions to impersonate');
     }
 
     let targetUser: any = null;
-    
+
     // Determine if identifier is email or userId
     if (targetIdentifier.includes('@')) {
       targetUser = await this.usersService.findByEmail(targetIdentifier);
@@ -66,9 +74,14 @@ export class AdminService {
     });
 
     // Store active impersonation session in database
-    const impersonationTimeout = this.configService.get<number>('IMPERSONATION_TIMEOUT_MINUTES', 60);
+    const impersonationTimeout = this.configService.get<number>(
+      'IMPERSONATION_TIMEOUT_MINUTES',
+      60,
+    );
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + impersonationTimeout * 60 * 1000);
+    const expiresAt = new Date(
+      now.getTime() + impersonationTimeout * 60 * 1000,
+    );
 
     await this.prisma.impersonationSession.upsert({
       where: { targetId: targetUser.id },
@@ -92,8 +105,9 @@ export class AdminService {
     });
 
     // Remove sensitive data from response
-    const { password, verificationToken, twoFactorSecret, ...sanitizedUser } = targetUser;
-    
+    const { password, verificationToken, twoFactorSecret, ...sanitizedUser } =
+      targetUser;
+
     return { targetUser: sanitizedUser };
   }
 
@@ -113,13 +127,13 @@ export class AdminService {
     if (!adminUser) {
       throw new NotFoundException('Admin user not found');
     }
-    
+
     if (!this.canImpersonate(adminUser.roles)) {
       throw new BadRequestException('Insufficient permissions to impersonate');
     }
 
     let targetUser: any = null;
-    
+
     // Determine if identifier is email or userId
     if (targetIdentifier.includes('@')) {
       targetUser = await this.usersService.findByEmail(targetIdentifier);
@@ -133,7 +147,10 @@ export class AdminService {
 
     const jwtSecret = this.configService.get<string>('JWT_SECRET');
     const refreshSecret = this.configService.get<string>('JWT_REFRESH_SECRET');
-    const impersonationTimeout = this.configService.get<number>('IMPERSONATION_TIMEOUT_MINUTES', 60);
+    const impersonationTimeout = this.configService.get<number>(
+      'IMPERSONATION_TIMEOUT_MINUTES',
+      60,
+    );
 
     if (!jwtSecret || !refreshSecret) {
       throw new Error('JWT secrets not configured');
@@ -176,7 +193,9 @@ export class AdminService {
 
     // Store active impersonation session
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + impersonationTimeout * 60 * 1000);
+    const expiresAt = new Date(
+      now.getTime() + impersonationTimeout * 60 * 1000,
+    );
 
     await this.prisma.impersonationSession.upsert({
       where: { targetId: targetUser.id },
@@ -199,7 +218,9 @@ export class AdminService {
       },
     });
 
-    this.logger.log(`Admin ${adminEmail} generated impersonation tokens for user ${targetUser.email}`);
+    this.logger.log(
+      `Admin ${adminEmail} generated impersonation tokens for user ${targetUser.email}`,
+    );
 
     return {
       accessToken,
@@ -235,36 +256,47 @@ export class AdminService {
       return { isImpersonation: false };
     }
 
-    const minutesRemaining = Math.max(0, Math.floor((session.expiresAt.getTime() - Date.now()) / 60000));
+    const minutesRemaining = Math.max(
+      0,
+      Math.floor((session.expiresAt.getTime() - Date.now()) / 60000),
+    );
 
     return {
       isImpersonation: true,
       impersonatedBy: session.adminId,
-      impersonatorEmail: (await this.usersService.findById(session.adminId))?.email,
+      impersonatorEmail: (await this.usersService.findById(session.adminId))
+        ?.email,
       impersonationExpiresAt: session.expiresAt,
       minutesRemaining,
     };
   }
 
-  async stopImpersonation(adminUserId: string, targetUserId: string): Promise<void> {
+  async stopImpersonation(
+    adminUserId: string,
+    targetUserId: string,
+  ): Promise<void> {
     // Verify that the admin stopping impersonation is the same one who started it
     const session = await this.prisma.impersonationSession.findUnique({
       where: { targetId: targetUserId },
     });
 
     if (!session) {
-      this.logger.warn(`Attempt to stop non-existent impersonation session for user ${targetUserId}`);
+      this.logger.warn(
+        `Attempt to stop non-existent impersonation session for user ${targetUserId}`,
+      );
       return; // Idempotent - returning success if session doesn't exist
     }
 
     if (session.adminId !== adminUserId) {
-      throw new BadRequestException('Cannot stop impersonation: not the original impersonator');
+      throw new BadRequestException(
+        'Cannot stop impersonation: not the original impersonator',
+      );
     }
 
     // Create audit log entry with timestamp
     const targetUser = await this.usersService.findById(targetUserId);
     const adminUser = await this.usersService.findById(adminUserId);
-    
+
     await this.auditImpersonation({
       adminId: adminUserId,
       adminEmail: adminUser?.email || 'unknown',
@@ -281,10 +313,14 @@ export class AdminService {
       where: { targetId: targetUserId },
     });
 
-    this.logger.log(`Impersonation stopped: Admin ${adminUserId} -> User ${targetUserId}`);
+    this.logger.log(
+      `Impersonation stopped: Admin ${adminUserId} -> User ${targetUserId}`,
+    );
   }
 
-  private async auditImpersonation(logData: ImpersonationAuditLog): Promise<void> {
+  private async auditImpersonation(
+    logData: ImpersonationAuditLog,
+  ): Promise<void> {
     try {
       // Save to database
       await this.prisma.impersonationAudit.create({
@@ -302,17 +338,22 @@ export class AdminService {
       });
 
       // Also log to console for immediate visibility
-      this.logger.log(`IMPERSONATION_AUDIT: ${logData.action.toUpperCase()} - ` +
-        `Admin: ${logData.adminId} (${logData.adminEmail}), ` +
-        `Target: ${logData.targetId} (${logData.targetEmail}), ` +
-        `IP: ${logData.ipAddress || 'unknown'}, ` +
-        `User-Agent: ${logData.userAgent || 'unknown'}, ` +
-        `Reason: ${logData.reason || 'N/A'}`);
-      
+      this.logger.log(
+        `IMPERSONATION_AUDIT: ${logData.action.toUpperCase()} - ` +
+          `Admin: ${logData.adminId} (${logData.adminEmail}), ` +
+          `Target: ${logData.targetId} (${logData.targetEmail}), ` +
+          `IP: ${logData.ipAddress || 'unknown'}, ` +
+          `User-Agent: ${logData.userAgent || 'unknown'}, ` +
+          `Reason: ${logData.reason || 'N/A'}`,
+      );
+
       // In production, you might also send this to an external logging service
       // like ELK, Splunk, or cloud logging
     } catch (error) {
-      this.logger.error('Failed to create impersonation audit log entry:', error);
+      this.logger.error(
+        'Failed to create impersonation audit log entry:',
+        error,
+      );
       // Don't throw error as auditing shouldn't block the main operation
     }
   }

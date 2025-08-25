@@ -36,11 +36,11 @@ describe('PrismaService', () => {
     it('should throw error in production', async () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';
-      
+
       await expect(service.cleanDatabase()).rejects.toThrow(
         'Cannot clean database in production',
       );
-      
+
       process.env.NODE_ENV = originalEnv;
     });
   });
