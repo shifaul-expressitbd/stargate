@@ -49,7 +49,14 @@ export const validationSchema = Joi.object({
   THROTTLE_LIMIT: Joi.number().default(100),
 
   // External services
-  RUNNER_API_URL: Joi.string().uri().required(),
+  RUNNER_API_URL: Joi.string().uri().required().messages({
+    'any.required': 'RUNNER_API_URL is required',
+    'string.uri': 'RUNNER_API_URL must be a valid URL',
+  }),
+  BASH_RUNNER_API_KEY: Joi.string().length(128).required().messages({
+    'any.required': 'BASH_RUNNER_API_KEY is required',
+    'string.length': 'BASH_RUNNER_API_KEY must be 128 characters long',
+  }),
 
   // SMTP Configuration
   SMTP_HOST: Joi.string().default('smtp.gmail.com'),

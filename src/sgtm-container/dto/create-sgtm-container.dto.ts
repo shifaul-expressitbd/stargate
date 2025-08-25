@@ -20,7 +20,10 @@ export class CreateSgtmContainerDto {
   @IsFQDN()
   subdomain: string;
 
-  @ApiProperty({ example: 'aWQ9R1RN...' })
+  @ApiProperty({
+    example:
+      'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==',
+  })
   @IsString()
   @IsBase64()
   config: string;
