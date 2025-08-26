@@ -12,6 +12,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -19,6 +20,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { BashRunnerService } from '../bash-runner/bash-runner.service';
+import { Public } from '../common/decorators/public.decorator';
 import { User } from '../common/decorators/user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CreateSgtmContainerDto } from './dto/create-sgtm-container.dto';
@@ -33,7 +35,53 @@ export class SgtmContainerController {
   constructor(
     private readonly sgtmContainerService: SgtmContainerService,
     private readonly bashRunnerService: BashRunnerService,
+    private readonly configService: ConfigService,
   ) {}
+
+  @Public()
+  @Get('available-sgtm-regions')
+  @ApiOperation({ summary: 'Get available regions for container deployment' })
+  @ApiResponse({
+    status: 200,
+    description: 'Available regions retrieved successfully',
+    schema: {
+      example: {
+        regions: [
+          {
+            key: 'india',
+            name: 'India',
+            available: true,
+            default: true,
+          },
+          {
+            key: 'us-east',
+            name: 'US East',
+            available: false,
+            default: false,
+          },
+        ],
+        defaultRegion: 'india',
+      },
+    },
+  })
+  async getAvailableRegions() {
+    const regions = this.configService.get('runner.regions') || {};
+    const defaultRegion = this.configService.get('runner.defaultRegion');
+
+    const regionStatus = Object.entries(regions).map(
+      ([key, region]: [string, any]) => ({
+        key,
+        name: region.name,
+        available: !!(region.apiUrl && region.apiKey),
+        default: region.default || key === defaultRegion,
+      }),
+    );
+
+    return {
+      regions: regionStatus,
+      defaultRegion,
+    };
+  }
 
   @Post()
   @ApiOperation({ summary: 'Create a new GTM container' })

@@ -3,10 +3,13 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   IsBase64,
   IsFQDN,
+  IsIn,
+  IsOptional,
   IsString,
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { DEFAULT_REGION, SUPPORTED_REGIONS } from '../../config/region.types';
 
 export class CreateSgtmContainerDto {
   @ApiProperty({ example: 'gtm-unified' })
@@ -27,4 +30,16 @@ export class CreateSgtmContainerDto {
   @IsString()
   @IsBase64()
   config: string;
+
+  @ApiProperty({
+    example: 'india',
+    description: 'Region where the container should be deployed',
+    enum: SUPPORTED_REGIONS,
+    default: DEFAULT_REGION,
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(SUPPORTED_REGIONS)
+  region?: string;
 }

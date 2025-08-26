@@ -12,6 +12,11 @@ import {
   CommandExecutionResult,
   StandardizedResponse,
 } from '../bash-runner/bash-runner.service';
+import {
+  DEFAULT_REGION,
+  RegionKey,
+  isValidRegion,
+} from '../config/region.types';
 import { PrismaService } from '../database/prisma/prisma.service';
 import { CreateSgtmContainerDto } from './dto/create-sgtm-container.dto';
 import { RunSgtmContainerDto } from './dto/run-sgtm-container.dto';
@@ -234,6 +239,24 @@ export class SgtmContainerService {
       `Creating container for user ${userId} with name ${dto.name}`,
     );
 
+    // Determine the region to use (default to DEFAULT_REGION if not specified)
+    const region: RegionKey =
+      dto.region && isValidRegion(dto.region) ? dto.region : DEFAULT_REGION;
+
+    this.logger.debug(`Using region: ${region} for container creation`);
+
+    // Validate that the selected region is properly configured
+    try {
+      this.bashRunnerService.getConfigForRegion(region);
+    } catch (error) {
+      this.logger.error(
+        `Region '${region}' is not properly configured: ${error.message}`,
+      );
+      throw new BadRequestException(
+        `Region '${region}' is not available. Please select a different region or contact support.`,
+      );
+    }
+
     // Generate a unique container name using userId and a short UUID
     const shortUuid = uuidv4().slice(0, 8);
     const fullName = `sgtm-${userId.substring(0, 8)}-${shortUuid}`;
@@ -248,6 +271,7 @@ export class SgtmContainerService {
         status: ContainerStatus.CREATED,
         subdomain: dto.subdomain,
         config: dto.config,
+        region: region,
       },
     });
 
@@ -263,14 +287,18 @@ export class SgtmContainerService {
         const commandId = `create-${container.id}-${Date.now()}`;
 
         // Use WebSocket to run container
-        await this.bashRunnerService.sendCommand(commandId, {
-          commandId: commandId,
-          action: 'docker-tagserver',
-          containerId: container.id,
-          name: container.fullName,
-          subdomain: dto.subdomain || container.subdomain || undefined,
-          config: dto.config || container.config || undefined,
-        });
+        await this.bashRunnerService.sendCommand(
+          commandId,
+          {
+            commandId: commandId,
+            action: 'docker-tagserver',
+            containerId: container.id,
+            name: container.fullName,
+            subdomain: dto.subdomain || container.subdomain || undefined,
+            config: dto.config || container.config || undefined,
+          },
+          region,
+        );
 
         // Wait for the container result
         const executionResult = await this.waitForContainerResult(
@@ -486,14 +514,18 @@ export class SgtmContainerService {
       console.log(`[CONTAINER_DEBUG] Attempting to send run command...`);
 
       try {
-        await this.bashRunnerService.sendCommand(commandId, {
-          commandId: commandId,
-          action: 'docker-tagserver',
-          containerId: container.id,
-          name: container.fullName,
-          subdomain: runDto.subdomain || container.subdomain || undefined,
-          config: runDto.config || container.config || undefined,
-        });
+        await this.bashRunnerService.sendCommand(
+          commandId,
+          {
+            commandId: commandId,
+            action: 'docker-tagserver',
+            containerId: container.id,
+            name: container.fullName,
+            subdomain: runDto.subdomain || container.subdomain || undefined,
+            config: runDto.config || container.config || undefined,
+          },
+          container.region as RegionKey,
+        );
         console.log(`[CONTAINER_DEBUG] Run command sent successfully`);
       } catch (sendError) {
         console.error(
@@ -661,12 +693,16 @@ export class SgtmContainerService {
       console.log(`[CONTAINER_DEBUG] Attempting to send stop command...`);
 
       try {
-        await this.bashRunnerService.sendCommand(commandId, {
-          commandId: commandId,
-          action: 'stop',
-          containerId: container.id,
-          name: container.fullName,
-        });
+        await this.bashRunnerService.sendCommand(
+          commandId,
+          {
+            commandId: commandId,
+            action: 'stop',
+            containerId: container.id,
+            name: container.fullName,
+          },
+          container.region as RegionKey,
+        );
         console.log(`[CONTAINER_DEBUG] Stop command sent successfully`);
       } catch (sendError) {
         console.error(
@@ -783,13 +819,17 @@ export class SgtmContainerService {
       console.log(`[CONTAINER_DEBUG] Attempting to send get-logs command...`);
 
       try {
-        await this.bashRunnerService.sendCommand(commandId, {
-          commandId: commandId,
-          action: 'get-logs',
-          containerId: container.id,
-          name: container.fullName,
-          lines,
-        });
+        await this.bashRunnerService.sendCommand(
+          commandId,
+          {
+            commandId: commandId,
+            action: 'get-logs',
+            containerId: container.id,
+            name: container.fullName,
+            lines,
+          },
+          container.region as RegionKey,
+        );
         console.log(`[CONTAINER_DEBUG] Get-logs command sent successfully`);
       } catch (sendError) {
         console.error(
@@ -903,12 +943,16 @@ export class SgtmContainerService {
       console.log(`[CONTAINER_DEBUG] Attempting to send delete command...`);
 
       try {
-        await this.bashRunnerService.sendCommand(commandId, {
-          commandId: commandId,
-          action: 'delete',
-          containerId: container.id,
-          name: container.fullName,
-        });
+        await this.bashRunnerService.sendCommand(
+          commandId,
+          {
+            commandId: commandId,
+            action: 'delete',
+            containerId: container.id,
+            name: container.fullName,
+          },
+          container.region as RegionKey,
+        );
         console.log(`[CONTAINER_DEBUG] Delete command sent successfully`);
       } catch (sendError) {
         console.error(

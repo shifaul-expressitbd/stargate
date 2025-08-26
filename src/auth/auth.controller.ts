@@ -708,7 +708,7 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @Post('2fa/generate')
+  @Get('2fa/generate')
   @ApiOperation({ summary: 'Generate 2FA secret for current user' })
   @ApiResponse({
     status: 200,

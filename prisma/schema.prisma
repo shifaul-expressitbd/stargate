@@ -81,6 +81,7 @@ model SgtmContainer {
   action    String? // run, list, delete
   subdomain String? // e.g., tags.bikobazaar.xyz
   config    String? // base64-encoded config string
+  region    String          @default("india") // Region where container is deployed
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
 

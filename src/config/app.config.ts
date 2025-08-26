@@ -41,6 +41,52 @@ export const appConfig = () => {
     throw new Error('JWT_REFRESH_SECRET must be at least 32 characters long');
   }
 
+  // Validate region configurations
+  const regions = {
+    india: {
+      name: 'India',
+      apiUrl:
+        process.env.BASH_RUNNER_API_URL_INDIA ||
+        process.env.BASH_RUNNER_API_URL,
+      apiKey:
+        process.env.BASH_RUNNER_API_KEY_INDIA ||
+        process.env.BASH_RUNNER_API_KEY,
+      default: true,
+    },
+    'us-east': {
+      name: 'US East',
+      apiUrl: process.env.BASH_RUNNER_API_URL_US_EAST,
+      apiKey: process.env.BASH_RUNNER_API_KEY_US_EAST,
+    },
+    'us-west': {
+      name: 'US West',
+      apiUrl: process.env.BASH_RUNNER_API_URL_US_WEST,
+      apiKey: process.env.BASH_RUNNER_API_KEY_US_WEST,
+    },
+    europe: {
+      name: 'Europe',
+      apiUrl: process.env.BASH_RUNNER_API_URL_EUROPE,
+      apiKey: process.env.BASH_RUNNER_API_KEY_EUROPE,
+    },
+  };
+
+  // Validate default region (India) has required configuration
+  if (!regions.india.apiUrl || !regions.india.apiKey) {
+    throw new Error(
+      `Default region (india) must have both BASH_RUNNER_API_URL and BASH_RUNNER_API_KEY configured`,
+    );
+  }
+
+  // Warn about regions without complete configuration
+  Object.entries(regions).forEach(([regionKey, regionConfig]) => {
+    if (!regionConfig.apiUrl || !regionConfig.apiKey) {
+      console.warn(
+        `⚠️  Region '${regionKey}' (${regionConfig.name}) is missing API configuration. ` +
+          `Containers created in this region may fail to start.`,
+      );
+    }
+  });
+
   return {
     // Server configuration
     port: parseInt(process.env.PORT ?? '5555', 10),
@@ -104,10 +150,43 @@ export const appConfig = () => {
       limit: parseInt(process.env.THROTTLE_LIMIT ?? '100', 10),
     },
 
-    // Runner configuration
+    // Runner configuration with region support
     runner: {
-      apiUrl: process.env.RUNNER_API_URL ?? 'ws://docker-runner-api:4000',
+      // Legacy single-region configuration (for backward compatibility)
+      apiUrl: process.env.BASH_RUNNER_API_URL,
       apiKey: process.env.BASH_RUNNER_API_KEY,
+
+      // Region-based configuration
+      regions: {
+        india: {
+          name: 'India',
+          apiUrl:
+            process.env.BASH_RUNNER_API_URL_INDIA ||
+            process.env.BASH_RUNNER_API_URL,
+          apiKey:
+            process.env.BASH_RUNNER_API_KEY_INDIA ||
+            process.env.BASH_RUNNER_API_KEY,
+          default: true,
+        },
+        'us-east': {
+          name: 'US East',
+          apiUrl: process.env.BASH_RUNNER_API_URL_US_EAST,
+          apiKey: process.env.BASH_RUNNER_API_KEY_US_EAST,
+        },
+        'us-west': {
+          name: 'US West',
+          apiUrl: process.env.BASH_RUNNER_API_URL_US_WEST,
+          apiKey: process.env.BASH_RUNNER_API_KEY_US_WEST,
+        },
+        europe: {
+          name: 'Europe',
+          apiUrl: process.env.BASH_RUNNER_API_URL_EUROPE,
+          apiKey: process.env.BASH_RUNNER_API_KEY_EUROPE,
+        },
+      },
+
+      // Default region (fallback)
+      defaultRegion: 'india',
     },
 
     // SMTP configuration

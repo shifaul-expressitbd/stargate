@@ -22,7 +22,7 @@ import { UsersModule } from './users/users.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [() => require('./config/app.config').appConfig],
+      load: [() => require('./config/app.config').appConfig()],
       validationSchema,
       envFilePath: ['.env.local', '.env'],
     }),
