@@ -5,11 +5,13 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import WebSocket, { WebSocket as WebSocketInstance } from 'ws';
+import { SgtmRegionService } from '../sgtm-region/sgtm-region.service';
+import WebSocket from 'ws';
+import type { WebSocket as WebSocketType } from 'ws';
 import {
   DEFAULT_REGION,
+  RegionConfig,
   RegionKey,
-  RunnerRegionConfig,
 } from '../config/region.types';
 
 // Define message interfaces for type safety
@@ -79,7 +81,7 @@ export interface CommandExecutionResult {
 @Injectable()
 export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BashRunnerService.name);
-  private ws: WebSocketInstance | null = null;
+  private ws: WebSocketType | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectTimeout = 3000;
@@ -105,38 +107,50 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
   private connectionResolve: (() => void) | null = null;
   private connectionReject: ((error: Error) => void) | null = null;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly sgtmRegionService: SgtmRegionService,
+  ) {
     this.logger.log('BashRunnerService initialized');
     // Add default result message logging
     this.addDefaultResultLogger();
   }
 
   /**
-   * Get region configuration from app config
+   * Get configuration for a specific region from database
    */
-  private getRegionConfig(): RunnerRegionConfig {
-    const runnerConfig = this.configService.get('runner');
-    return runnerConfig?.regions || {};
-  }
+  async getConfigForRegion(region: RegionKey): Promise<RegionConfig> {
+    try {
+      const regionData = await this.sgtmRegionService.findByKey(region);
 
-  /**
-   * Get configuration for a specific region
-   */
-  getConfigForRegion(region: RegionKey) {
-    const regions = this.getRegionConfig();
-    const regionConfig = regions[region];
+      if (!regionData) {
+        throw new Error(
+          `Configuration for region '${region}' not found in database`,
+        );
+      }
 
-    if (!regionConfig) {
-      throw new Error(`Configuration for region '${region}' not found`);
+      if (!regionData.isActive) {
+        throw new Error(
+          `Region '${region}' (${regionData.name}) is currently inactive`,
+        );
+      }
+
+      if (!regionData.apiUrl || !regionData.apiKey) {
+        throw new Error(
+          `Region '${region}' (${regionData.name}) is not properly configured. Missing API URL or API key.`,
+        );
+      }
+      return {
+        name: regionData.name,
+        apiUrl: regionData.apiUrl,
+        apiKey: regionData.apiKey,
+        default: regionData.isDefault,
+      };
+
+    } catch (error) {
+      this.logger.error(`Failed to get config for region '${region}':`, error);
+      throw error;
     }
-
-    if (!regionConfig.apiUrl || !regionConfig.apiKey) {
-      throw new Error(
-        `Region '${region}' (${regionConfig.name}) is not properly configured. Missing API URL or API key.`,
-      );
-    }
-
-    return regionConfig;
   }
 
   /**
@@ -168,18 +182,14 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
       this.connectionReject = reject;
     });
 
-    const regionConfig = this.getConfigForRegion(region);
+    const regionConfig = await this.getConfigForRegion(region);
 
     this.logger.log(
       `Connecting to runner service at ${regionConfig.apiUrl} (region: ${regionConfig.name})`,
     );
 
     try {
-      this.ws = new WebSocket(regionConfig.apiUrl!, {
-        headers: {
-          'X-API-KEY': regionConfig.apiKey,
-        },
-      });
+      this.ws = new WebSocket(`${regionConfig.apiUrl}?apiKey=${regionConfig.apiKey}`);
 
       this.ws.on('open', () => {
         this.logger.log(
@@ -514,11 +524,7 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Connecting to runner service at ${runnerApiUrl}`);
 
     try {
-      this.ws = new WebSocket(runnerApiUrl, {
-        headers: {
-          'X-API-KEY': apiKey,
-        },
-      });
+      this.ws = new WebSocket(`${runnerApiUrl}?apiKey=${apiKey}`);
 
       this.ws.on('open', () => {
         this.logger.log('✅ Connected to runner service');
@@ -830,6 +836,113 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
 
   getConnectionStatus(): string {
     return `Status: ${this.connectionStatus}, WebSocket readyState: ${this.ws ? this.ws.readyState : 'null'}`;
+  }
+
+  /**
+   * Get health information about the bash runner service
+   * Uses fallback pattern: environment variables first, then database
+   */
+  async getHealthInfo(): Promise<any> {
+    try {
+      // Add environment-based configuration info (primary source)
+      const envConfig = {
+        BASH_RUNNER_API_URL: this.configService.get('BASH_RUNNER_API_URL') ? 'configured' : 'not set',
+        BASH_RUNNER_API_KEY: this.configService.get('BASH_RUNNER_API_KEY') ? 'configured' : 'not set',
+        BASH_RUNNER_API_URL_INDIA: this.configService.get('BASH_RUNNER_API_URL_INDIA') ? 'configured' : 'not set',
+        BASH_RUNNER_API_KEY_INDIA: this.configService.get('BASH_RUNNER_API_KEY_INDIA') ? 'configured' : 'not set',
+      };
+
+      const healthInfo = {
+        service: 'bash-runner',
+        timestamp: new Date().toISOString(),
+        connection: {
+          status: this.connectionStatus,
+          isConnected: this.isConnected(),
+          isAvailable: this.isAvailable(),
+          reconnectAttempts: this.reconnectAttempts,
+          maxReconnectAttempts: this.maxReconnectAttempts,
+          envConfig: envConfig,
+        },
+        regions: {},
+        activeRegion: null,
+      };
+
+      // Try to get region information from database (fallback pattern)
+      try {
+        const regions = await this.sgtmRegionService.findAll();
+        healthInfo.regions = regions.reduce((acc: any, region: any) => {
+          acc[region.key] = {
+            name: region.name,
+            isActive: region.isActive,
+            isDefault: region.isDefault,
+            hasApiConfig: !!(region.apiUrl && region.apiKey),
+          };
+          if (region.isDefault && region.isActive) {
+            healthInfo.activeRegion = region.key;
+          }
+          return acc;
+        }, {});
+      } catch (dbError) {
+        this.logger.warn('Could not fetch region data from database:', dbError);
+        healthInfo.regions = {
+          error: 'Database unavailable',
+          fallback: 'Using environment configuration only',
+        };
+      }
+
+      return healthInfo;
+    } catch (error) {
+      this.logger.error('Failed to get health info:', error);
+      throw new Error('Health check failed');
+    }
+  }
+
+  /**
+   * Retry connection to the bash runner service
+   * Uses fallback pattern: tries current region, falls back to default
+   */
+  async retryConnection(): Promise<boolean> {
+    try {
+      this.logger.log('Manual retry connection requested');
+
+      // Reset reconnect attempts for manual retry
+      this.reconnectAttempts = 0;
+
+      // First try to connect to current/default region
+      try {
+        await this.connectToRegion();
+        if (this.isConnected()) {
+          this.logger.log('✅ Manual retry connection successful');
+          return true;
+        }
+      } catch (error) {
+        this.logger.warn('Failed to connect to current region, trying fallback:', error);
+      }
+
+      // Fallback: try to connect with direct environment configuration
+      try {
+        const runnerApiUrl = this.configService.get('BASH_RUNNER_API_URL');
+        const apiKey = this.configService.get('BASH_RUNNER_API_KEY');
+
+        if (runnerApiUrl && apiKey) {
+          await this.connect();
+          if (this.isConnected()) {
+            this.logger.log('✅ Manual retry connection successful (fallback)');
+            return true;
+          }
+        } else {
+          this.logger.warn('Environment configuration not available for fallback');
+        }
+      } catch (fallbackError) {
+        this.logger.error('Fallback connection also failed:', fallbackError);
+      }
+
+      this.logger.error('❌ Manual retry connection failed');
+      return false;
+    } catch (error) {
+      this.logger.error('Error during manual retry connection:', error);
+      return false;
+    }
   }
 
   /**

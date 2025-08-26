@@ -16,6 +16,7 @@ import { validationSchema } from './config/validation.schema';
 import { DatabaseModule } from './database/database.module';
 import { MailModule } from './mail/mail.module';
 import { SgtmContainerModule } from './sgtm-container/sgtm-container.module';
+import { SgtmRegionModule } from './sgtm-region/sgtm-region.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -52,6 +53,7 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     UsersModule,
     SgtmContainerModule,
+    SgtmRegionModule,
     MailModule,
     AdminModule,
     BashRunnerModule,

@@ -88,6 +88,21 @@ model SgtmContainer {
   @@map("sgtm_containers")
 }
 
+model SgtmRegion {
+  id          String   @id @default(cuid())
+  key         String   @unique // e.g., 'india', 'us-east', 'us-west', 'europe'
+  name        String // Display name e.g., 'India', 'US East'
+  apiUrl      String // WebSocket URL for the region
+  apiKey      String // API key for the region
+  isActive    Boolean  @default(true) // Whether region is available
+  isDefault   Boolean  @default(false) // Whether this is the default region
+  description String? // Optional description
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("sgtm_regions")
+}
+
 enum ContainerStatus {
   CREATED
   PENDING
