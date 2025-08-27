@@ -135,4 +135,11 @@ export class UsersService {
       data: { password },
     });
   }
+
+  // API Key support for bash-runner compatibility
+  async findByApiKey(apiKey: string) {
+    // For now, return null as stargate doesn't use API keys by default
+    // This can be extended later if API key support is needed
+    return null;
+  }
 }

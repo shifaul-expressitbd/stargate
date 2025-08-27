@@ -5,14 +5,16 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SgtmRegionService } from '../sgtm-region/sgtm-region.service';
-import WebSocket from 'ws';
-import type { WebSocket as WebSocketType } from 'ws';
+import { plainToClass } from 'class-transformer';
+import { validate } from 'class-validator';
+import { io, Socket } from 'socket.io-client';
 import {
   DEFAULT_REGION,
   RegionConfig,
   RegionKey,
 } from '../config/region.types';
+import { SgtmRegionService } from '../sgtm-region/sgtm-region.service';
+import { BashRunnerCommandDto } from './dto/bash-runner-command.dto';
 
 // Define message interfaces for type safety
 interface CommandMessage {
@@ -20,6 +22,7 @@ interface CommandMessage {
   action: string;
   containerId?: string;
   name?: string;
+  user?: string;
   subdomain?: string | undefined;
   config?: string | undefined;
   lines?: number;
@@ -81,7 +84,7 @@ export interface CommandExecutionResult {
 @Injectable()
 export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BashRunnerService.name);
-  private ws: WebSocketType | null = null;
+  private socket: Socket | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectTimeout = 3000;
@@ -146,7 +149,6 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
         apiKey: regionData.apiKey,
         default: regionData.isDefault,
       };
-
     } catch (error) {
       this.logger.error(`Failed to get config for region '${region}':`, error);
       throw error;
@@ -154,15 +156,14 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Connect to a specific region's bash runner service
+   * Connect to bash runner service using Socket.IO
    */
-  private async connectToRegion(
-    region: RegionKey = DEFAULT_REGION,
+  private async connectToBashRunner(
+    apiUrl: string,
+    apiKey: string,
   ): Promise<void> {
     if (this.connectionStatus === 'connected') {
-      this.logger.log(
-        `Already connected to bash runner service (region: ${region})`,
-      );
+      this.logger.log('Already connected to bash runner service');
       return;
     }
 
@@ -172,9 +173,7 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.connectionStatus = 'connecting';
-    this.logger.log(
-      `Attempting to connect to bash runner service (region: ${region})...`,
-    );
+    this.logger.log(`Connecting to bash runner service at ${apiUrl}`);
 
     // Clear any existing connection promise
     this.connectionPromise = new Promise<void>((resolve, reject) => {
@@ -182,19 +181,17 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
       this.connectionReject = reject;
     });
 
-    const regionConfig = await this.getConfigForRegion(region);
-
-    this.logger.log(
-      `Connecting to runner service at ${regionConfig.apiUrl} (region: ${regionConfig.name})`,
-    );
-
     try {
-      this.ws = new WebSocket(`${regionConfig.apiUrl}?apiKey=${regionConfig.apiKey}`);
+      // Create Socket.IO client connection
+      this.socket = io(apiUrl, {
+        path: '/api/command',
+        query: { apiKey },
+        transports: ['websocket', 'polling'],
+        timeout: 10000,
+      });
 
-      this.ws.on('open', () => {
-        this.logger.log(
-          `✅ Connected to runner service (region: ${regionConfig.name})`,
-        );
+      this.socket.on('connect', () => {
+        this.logger.log('✅ Connected to bash runner service');
         this.reconnectAttempts = 0;
         this.connectionStatus = 'connected';
 
@@ -205,149 +202,133 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
         }
       });
 
-      this.ws.on('message', (data: WebSocket.Data) => {
-        try {
-          const message = JSON.parse(data.toString());
+      this.socket.on('disconnect', (reason) => {
+        this.logger.warn(`Socket.IO disconnected: ${reason}`);
+        this.connectionStatus = 'disconnected';
+        this.handleConnectionClose(reason);
+      });
+
+      this.socket.on('connect_error', (error) => {
+        this.logger.error('Socket.IO connection error:', error);
+        this.connectionStatus = 'disconnected';
+        this.handleConnectionError(error);
+      });
+
+      // Handle result messages
+      this.socket.on(
+        'result',
+        (data: CommandResultData & { commandId?: string }) => {
+          const commandId = data.commandId || 'unknown';
           this.logger.debug(
-            `Received message from runner (${regionConfig.name}): ${JSON.stringify(message)}`,
+            `Received result from bash-runner (${commandId}): ${JSON.stringify(data)}`,
           );
 
           // Call general message interceptors first
           this.messageInterceptors.forEach((interceptor) => {
             try {
-              interceptor(message);
+              interceptor(data);
             } catch (error) {
               this.logger.error('Error in message interceptor:', error);
             }
           });
 
-          // Handle system messages
-          if (message.type === 'ping') {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-              this.ws.pong();
-            }
-            return;
-          }
+          const resolver = this.commandResolvers.get(commandId);
+          if (resolver) {
+            clearTimeout(resolver.timeout);
+            this.commandResolvers.delete(commandId);
 
-          if (message.type === 'pong') {
-            this.logger.debug(
-              `Received pong from runner service (${regionConfig.name})`,
-            );
-            return;
-          }
-
-          // Handle responses from bash-runner service
-          if (message.type === 'result' && message.commandId) {
-            // Handle container-specific result messages
-            if (
-              message.commandId.startsWith('create-') ||
-              message.commandId.startsWith('run-') ||
-              message.commandId.startsWith('stop-') ||
-              message.commandId.startsWith('delete-')
-            ) {
-              // Emit container-specific result event
-              const containerResultEvent = `container-result:${message.commandId}`;
-              const handler = this.messageHandlers.get(containerResultEvent);
-              if (handler) {
-                try {
-                  handler(message.data);
-                } catch (error) {
-                  this.logger.error(
-                    `Error handling container result event ${containerResultEvent}:`,
-                    error,
-                  );
-                }
-              }
-            }
-
-            const resolver = this.commandResolvers.get(message.commandId);
-            if (resolver) {
-              clearTimeout(resolver.timeout);
-              this.commandResolvers.delete(message.commandId);
-
-              // Extract and validate result data
-              const resultData = message.data as CommandResultData;
-
-              // Call result message interceptors
-              this.resultMessageInterceptors.forEach((interceptor) => {
-                try {
-                  interceptor(resultData, message.commandId);
-                } catch (error) {
-                  this.logger.error(
-                    'Error in result message interceptor:',
-                    error,
-                  );
-                }
-              });
-
-              if (this.validateResultData(resultData)) {
-                const executionResult = this.createExecutionResult(
-                  message.commandId,
-                  resultData,
-                  message.commandId, // The action is stored as commandId in the sent message
-                );
-
-                this.logger.log(
-                  `✅ Command ${message.commandId} completed: success=${executionResult.success}, exitCode=${executionResult.exitCode}`,
-                );
-
-                if (executionResult.message) {
-                  this.logger.debug(
-                    `Command message: ${executionResult.message}`,
-                  );
-                }
-
-                resolver.resolve(executionResult);
-              } else {
-                // Handle malformed result data with proper error
+            // Call result message interceptors
+            this.resultMessageInterceptors.forEach((interceptor) => {
+              try {
+                interceptor(data, commandId);
+              } catch (error) {
                 this.logger.error(
-                  `❌ Received malformed result data for command ${message.commandId}:`,
-                  resultData,
+                  'Error in result message interceptor:',
+                  error,
                 );
-
-                const error = new Error(
-                  `Command ${message.commandId} returned malformed result data`,
-                );
-                resolver.reject(error);
               }
+            });
+
+            // Handle bash-runner's result format
+            if (data.status === 'success') {
+              const executionResult: CommandExecutionResult = {
+                success: true,
+                exitCode: 0,
+                message: data.data,
+                commandId: data.commandId || commandId,
+                action: 'docker-tagserver-run', // The actual action that was executed
+                containerId: data.data?.containerId || data.containerId,
+                executionTime: Date.now(),
+              };
+
+              this.logger.log(
+                `✅ Command ${commandId} completed: success=${executionResult.success}, exitCode=${executionResult.exitCode}`,
+              );
+
+              if (executionResult.message) {
+                this.logger.debug(
+                  `Command message: ${JSON.stringify(executionResult.message)}`,
+                );
+              }
+
+              resolver.resolve(executionResult);
             } else {
-              this.logger.warn(
-                `Received result for unknown command: ${message.commandId}`,
-              );
-            }
-          } else if (message.type === 'error' && message.commandId) {
-            this.logger.debug(
-              `Processing error message for command: ${message.commandId}`,
-            );
-
-            const resolver = this.commandResolvers.get(message.commandId);
-            if (resolver) {
-              clearTimeout(resolver.timeout);
-              this.commandResolvers.delete(message.commandId);
-
-              const errorMessage =
-                message.data?.error || message.data || 'Command failed';
-
               this.logger.error(
-                `❌ Command ${message.commandId} failed: ${errorMessage}`,
+                `❌ Command ${commandId} failed with status: ${data.status}`,
               );
-
               const error = new Error(
-                `Command ${message.commandId} failed: ${errorMessage}`,
+                `Command ${commandId} failed: ${data.error || 'Unknown error'}`,
               );
               resolver.reject(error);
-            } else {
-              this.logger.warn(
-                `⚠️  Received error for unknown command: ${message.commandId}`,
-              );
             }
-          } else if (message.type === 'stdout' && message.commandId) {
-            // Convert stdout messages to container-status events for container operations
-            const eventType = `container-status:${message.commandId}`;
+          } else {
+            this.logger.warn(
+              `Received result for unknown command: ${commandId}`,
+            );
+          }
+        },
+      );
+
+      // Handle error messages
+      this.socket.on('error', (data: { error: string; commandId?: string }) => {
+        const commandId = data.commandId || 'unknown';
+        this.logger.debug(`Processing error message for command: ${commandId}`);
+
+        const resolver = this.commandResolvers.get(commandId);
+        if (resolver) {
+          clearTimeout(resolver.timeout);
+          this.commandResolvers.delete(commandId);
+
+          const errorMessage = data.error || 'Command failed';
+
+          this.logger.error(`❌ Command ${commandId} failed: ${errorMessage}`);
+
+          const error = new Error(
+            `Command ${commandId} failed: ${errorMessage}`,
+          );
+          resolver.reject(error);
+        } else {
+          this.logger.warn(
+            `⚠️  Received error for unknown command: ${commandId}`,
+          );
+        }
+      });
+
+      // Handle stdout messages (for real-time output)
+      this.socket.on(
+        'output',
+        (data: {
+          type: 'stdout' | 'stderr';
+          data: string;
+          commandId?: string;
+        }) => {
+          const commandId = data.commandId || 'unknown';
+          if (data.type === 'stdout') {
+            const eventType = `container-status:${commandId}`;
             const handler = this.messageHandlers.get(eventType);
             if (handler) {
               try {
-                handler({ status: 'running', data: message.data });
+                handler({ status: 'running', data: data.data });
               } catch (error) {
                 this.logger.error(
                   `Error handling stdout event ${eventType}:`,
@@ -355,13 +336,12 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
                 );
               }
             }
-          } else if (message.type === 'stderr' && message.commandId) {
-            // Convert stderr messages to container error events
-            const eventType = `container-stderr:${message.commandId}`;
+          } else if (data.type === 'stderr') {
+            const eventType = `container-stderr:${commandId}`;
             const handler = this.messageHandlers.get(eventType);
             if (handler) {
               try {
-                handler(message.data);
+                handler(data.data);
               } catch (error) {
                 this.logger.error(
                   `Error handling stderr event ${eventType}:`,
@@ -370,21 +350,12 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
               }
             }
           }
-        } catch (error) {
-          this.logger.error('Error processing message:', error);
-        }
-      });
+        },
+      );
 
-      this.ws.on('error', (error) => {
-        this.logger.error(`WebSocket error (${regionConfig.name}):`, error);
-        this.handleConnectionError(error);
-      });
-
-      this.ws.on('close', (code, reason) => {
-        this.logger.warn(
-          `WebSocket closed (${regionConfig.name}, code: ${code}, reason: ${reason})`,
-        );
-        this.handleConnectionClose(code, reason);
+      // Handle connection confirmation
+      this.socket.on('connected', (data) => {
+        this.logger.debug('Received connection confirmation:', data);
       });
 
       // Set connection timeout
@@ -394,9 +365,9 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
           this.logger.error(error.message);
           this.connectionStatus = 'disconnected';
 
-          if (this.ws) {
-            this.ws.terminate();
-            this.ws = null;
+          if (this.socket) {
+            this.socket.disconnect();
+            this.socket = null;
           }
 
           if (this.connectionReject) {
@@ -427,7 +398,7 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     this.logger.log('Initializing BashRunnerService...');
     try {
-      await this.connectToRegion(); // Connect to default region
+      await this.connect(); // Connect using environment configuration
       // Set up ping/pong to keep connection alive
       this.setupPingInterval();
     } catch (error) {
@@ -445,9 +416,9 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {
     this.logger.log('Cleaning up BashRunnerService...');
     this.clearConnectionTimers();
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
     }
     this.connectionStatus = 'disconnected';
   }
@@ -467,41 +438,25 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
     this.clearConnectionTimers();
 
     this.pingInterval = setInterval(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      if (this.socket && this.socket.connected) {
         try {
-          this.ws.ping();
-          this.logger.debug('Sent ping to runner service');
+          this.socket.emit('ping');
+          // this.logger.debug('Sent ping to bash runner service');
         } catch (error) {
           this.logger.error('Error sending ping:', error);
           this.handleConnectionError(new Error('Ping failed'));
         }
       } else {
-        this.logger.warn('Cannot send ping, WebSocket not open');
+        this.logger.warn('Cannot send ping, Socket.IO not connected');
         this.reconnect();
       }
     }, this.PING_INTERVAL);
   }
 
+  /**
+   * Connect using environment configuration (legacy method for backward compatibility)
+   */
   private async connect(): Promise<void> {
-    if (this.connectionStatus === 'connected') {
-      this.logger.log('Already connected to runner service');
-      return;
-    }
-
-    if (this.connectionStatus === 'connecting') {
-      this.logger.log('Connection already in progress, waiting...');
-      return this.getConnectionPromise();
-    }
-
-    this.connectionStatus = 'connecting';
-    this.logger.log('Attempting to connect to runner service...');
-
-    // Clear any existing connection promise
-    this.connectionPromise = new Promise<void>((resolve, reject) => {
-      this.connectionResolve = resolve;
-      this.connectionReject = reject;
-    });
-
     const runnerApiUrl = this.configService.get('BASH_RUNNER_API_URL');
     const apiKey = this.configService.get('BASH_RUNNER_API_KEY');
 
@@ -509,7 +464,6 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
       const error = new Error('BASH_RUNNER_API_URL is not configured');
       this.logger.error(error.message);
       this.connectionStatus = 'disconnected';
-      if (this.connectionReject) this.connectionReject(error);
       throw error;
     }
 
@@ -517,240 +471,23 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
       const error = new Error('BASH_RUNNER_API_KEY is not configured');
       this.logger.error(error.message);
       this.connectionStatus = 'disconnected';
-      if (this.connectionReject) this.connectionReject(error);
       throw error;
     }
 
-    this.logger.log(`Connecting to runner service at ${runnerApiUrl}`);
+    return this.connectToBashRunner(runnerApiUrl, apiKey);
+  }
 
-    try {
-      this.ws = new WebSocket(`${runnerApiUrl}?apiKey=${apiKey}`);
-
-      this.ws.on('open', () => {
-        this.logger.log('✅ Connected to runner service');
-        this.reconnectAttempts = 0;
-        this.connectionStatus = 'connected';
-
-        if (this.connectionResolve) {
-          this.connectionResolve();
-          this.connectionResolve = null;
-          this.connectionReject = null;
-        }
-      });
-
-      this.ws.on('message', (data: WebSocket.Data) => {
-        try {
-          const message = JSON.parse(data.toString());
-          this.logger.debug(
-            `Received message from runner: ${JSON.stringify(message)}`,
-          );
-
-          // Call general message interceptors first
-          this.messageInterceptors.forEach((interceptor) => {
-            try {
-              interceptor(message);
-            } catch (error) {
-              this.logger.error('Error in message interceptor:', error);
-            }
-          });
-
-          // Handle system messages
-          if (message.type === 'ping') {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-              this.ws.pong();
-            }
-            return;
-          }
-
-          if (message.type === 'pong') {
-            this.logger.debug('Received pong from runner service');
-            return;
-          }
-
-          // Handle responses from bash-runner service
-          if (message.type === 'result' && message.commandId) {
-            // Handle container-specific result messages
-            if (
-              message.commandId.startsWith('create-') ||
-              message.commandId.startsWith('run-') ||
-              message.commandId.startsWith('stop-') ||
-              message.commandId.startsWith('delete-')
-            ) {
-              // Emit container-specific result event
-              const containerResultEvent = `container-result:${message.commandId}`;
-              const handler = this.messageHandlers.get(containerResultEvent);
-              if (handler) {
-                try {
-                  handler(message.data);
-                } catch (error) {
-                  this.logger.error(
-                    `Error handling container result event ${containerResultEvent}:`,
-                    error,
-                  );
-                }
-              }
-            }
-
-            const resolver = this.commandResolvers.get(message.commandId);
-            if (resolver) {
-              clearTimeout(resolver.timeout);
-              this.commandResolvers.delete(message.commandId);
-
-              // Extract and validate result data
-              const resultData = message.data as CommandResultData;
-
-              // Call result message interceptors
-              this.resultMessageInterceptors.forEach((interceptor) => {
-                try {
-                  interceptor(resultData, message.commandId);
-                } catch (error) {
-                  this.logger.error(
-                    'Error in result message interceptor:',
-                    error,
-                  );
-                }
-              });
-
-              if (this.validateResultData(resultData)) {
-                const executionResult = this.createExecutionResult(
-                  message.commandId,
-                  resultData,
-                  message.commandId, // The action is stored as commandId in the sent message
-                );
-
-                this.logger.log(
-                  `✅ Command ${message.commandId} completed: success=${executionResult.success}, exitCode=${executionResult.exitCode}`,
-                );
-
-                if (executionResult.message) {
-                  this.logger.debug(
-                    `Command message: ${executionResult.message}`,
-                  );
-                }
-
-                resolver.resolve(executionResult);
-              } else {
-                // Handle malformed result data with proper error
-                this.logger.error(
-                  `❌ Received malformed result data for command ${message.commandId}:`,
-                  resultData,
-                );
-
-                const error = new Error(
-                  `Command ${message.commandId} returned malformed result data`,
-                );
-                resolver.reject(error);
-              }
-            } else {
-              this.logger.warn(
-                `Received result for unknown command: ${message.commandId}`,
-              );
-            }
-          } else if (message.type === 'error' && message.commandId) {
-            this.logger.debug(
-              `Processing error message for command: ${message.commandId}`,
-            );
-
-            const resolver = this.commandResolvers.get(message.commandId);
-            if (resolver) {
-              clearTimeout(resolver.timeout);
-              this.commandResolvers.delete(message.commandId);
-
-              const errorMessage =
-                message.data?.error || message.data || 'Command failed';
-
-              this.logger.error(
-                `❌ Command ${message.commandId} failed: ${errorMessage}`,
-              );
-
-              const error = new Error(
-                `Command ${message.commandId} failed: ${errorMessage}`,
-              );
-              resolver.reject(error);
-            } else {
-              this.logger.warn(
-                `⚠️  Received error for unknown command: ${message.commandId}`,
-              );
-            }
-          } else if (message.type === 'stdout' && message.commandId) {
-            // Convert stdout messages to container-status events for container operations
-            const eventType = `container-status:${message.commandId}`;
-            const handler = this.messageHandlers.get(eventType);
-            if (handler) {
-              try {
-                handler({ status: 'running', data: message.data });
-              } catch (error) {
-                this.logger.error(
-                  `Error handling stdout event ${eventType}:`,
-                  error,
-                );
-              }
-            }
-          } else if (message.type === 'stderr' && message.commandId) {
-            // Convert stderr messages to container error events
-            const eventType = `container-stderr:${message.commandId}`;
-            const handler = this.messageHandlers.get(eventType);
-            if (handler) {
-              try {
-                handler(message.data);
-              } catch (error) {
-                this.logger.error(
-                  `Error handling stderr event ${eventType}:`,
-                  error,
-                );
-              }
-            }
-          }
-        } catch (error) {
-          this.logger.error('Error processing message:', error);
-        }
-      });
-
-      this.ws.on('error', (error) => {
-        this.logger.error('WebSocket error:', error);
-        this.handleConnectionError(error);
-      });
-
-      this.ws.on('close', (code, reason) => {
-        this.logger.warn(`WebSocket closed (code: ${code}, reason: ${reason})`);
-        this.handleConnectionClose(code, reason);
-      });
-
-      // Set connection timeout
-      this.connectionTimeout = setTimeout(() => {
-        if (this.connectionStatus !== 'connected') {
-          const error = new Error('Connection timeout');
-          this.logger.error(error.message);
-          this.connectionStatus = 'disconnected';
-
-          if (this.ws) {
-            this.ws.terminate();
-            this.ws = null;
-          }
-
-          if (this.connectionReject) {
-            this.connectionReject(error);
-            this.connectionResolve = null;
-            this.connectionReject = null;
-          }
-
-          this.reconnect();
-        }
-      }, 10000);
-
-      return this.connectionPromise;
-    } catch (error) {
-      this.logger.error('Connection setup error:', error);
-      this.connectionStatus = 'disconnected';
-
-      if (this.connectionReject) {
-        this.connectionReject(error);
-        this.connectionResolve = null;
-        this.connectionReject = null;
-      }
-
-      throw error;
+  /**
+   * Connect to a specific region's bash runner service
+   */
+  private async connectToRegion(
+    region: RegionKey = DEFAULT_REGION,
+  ): Promise<void> {
+    const regionConfig = await this.getConfigForRegion(region);
+    if (!regionConfig.apiUrl || !regionConfig.apiKey) {
+      throw new Error(`Region ${region} is not properly configured`);
     }
+    return this.connectToBashRunner(regionConfig.apiUrl, regionConfig.apiKey);
   }
 
   private getConnectionPromise(): Promise<void> {
@@ -775,19 +512,20 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
     this.reconnect();
   }
 
-  private handleConnectionClose(code: number, reason: Buffer) {
+  private handleConnectionClose(reason: string) {
     if (this.connectionReject && this.connectionStatus === 'connecting') {
-      const error = new Error(
-        `Connection closed (code: ${code}, reason: ${reason.toString()})`,
-      );
+      const error = new Error(`Connection closed: ${reason}`);
       this.connectionReject(error);
       this.connectionResolve = null;
       this.connectionReject = null;
     }
     this.connectionStatus = 'disconnected';
 
-    // Don't reconnect for normal closure codes
-    if (code !== 1000 && code !== 1001) {
+    // Don't reconnect for certain reasons
+    if (
+      reason !== 'io server disconnect' &&
+      reason !== 'io client disconnect'
+    ) {
       this.reconnect();
     }
   }
@@ -825,8 +563,8 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
   isConnected(): boolean {
     return (
       this.connectionStatus === 'connected' &&
-      this.ws !== null &&
-      this.ws.readyState === WebSocket.OPEN
+      this.socket !== null &&
+      this.socket.connected
     );
   }
 
@@ -835,21 +573,31 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
   }
 
   getConnectionStatus(): string {
-    return `Status: ${this.connectionStatus}, WebSocket readyState: ${this.ws ? this.ws.readyState : 'null'}`;
+    return `Status: ${this.connectionStatus}, Socket.IO connected: ${this.socket ? this.socket.connected : 'null'}`;
   }
 
   /**
    * Get health information about the bash runner service
-   * Uses fallback pattern: environment variables first, then database
    */
   async getHealthInfo(): Promise<any> {
     try {
-      // Add environment-based configuration info (primary source)
       const envConfig = {
-        BASH_RUNNER_API_URL: this.configService.get('BASH_RUNNER_API_URL') ? 'configured' : 'not set',
-        BASH_RUNNER_API_KEY: this.configService.get('BASH_RUNNER_API_KEY') ? 'configured' : 'not set',
-        BASH_RUNNER_API_URL_INDIA: this.configService.get('BASH_RUNNER_API_URL_INDIA') ? 'configured' : 'not set',
-        BASH_RUNNER_API_KEY_INDIA: this.configService.get('BASH_RUNNER_API_KEY_INDIA') ? 'configured' : 'not set',
+        BASH_RUNNER_API_URL: this.configService.get('BASH_RUNNER_API_URL')
+          ? 'configured'
+          : 'not set',
+        BASH_RUNNER_API_KEY: this.configService.get('BASH_RUNNER_API_KEY')
+          ? 'configured'
+          : 'not set',
+        BASH_RUNNER_API_URL_INDIA: this.configService.get(
+          'BASH_RUNNER_API_URL_INDIA',
+        )
+          ? 'configured'
+          : 'not set',
+        BASH_RUNNER_API_KEY_INDIA: this.configService.get(
+          'BASH_RUNNER_API_KEY_INDIA',
+        )
+          ? 'configured'
+          : 'not set',
       };
 
       const healthInfo = {
@@ -867,7 +615,6 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
         activeRegion: null,
       };
 
-      // Try to get region information from database (fallback pattern)
       try {
         const regions = await this.sgtmRegionService.findAll();
         healthInfo.regions = regions.reduce((acc: any, region: any) => {
@@ -899,7 +646,6 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Retry connection to the bash runner service
-   * Uses fallback pattern: tries current region, falls back to default
    */
   async retryConnection(): Promise<boolean> {
     try {
@@ -916,22 +662,18 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
           return true;
         }
       } catch (error) {
-        this.logger.warn('Failed to connect to current region, trying fallback:', error);
+        this.logger.warn(
+          'Failed to connect to current region, trying fallback:',
+          error,
+        );
       }
 
       // Fallback: try to connect with direct environment configuration
       try {
-        const runnerApiUrl = this.configService.get('BASH_RUNNER_API_URL');
-        const apiKey = this.configService.get('BASH_RUNNER_API_KEY');
-
-        if (runnerApiUrl && apiKey) {
-          await this.connect();
-          if (this.isConnected()) {
-            this.logger.log('✅ Manual retry connection successful (fallback)');
-            return true;
-          }
-        } else {
-          this.logger.warn('Environment configuration not available for fallback');
+        await this.connect();
+        if (this.isConnected()) {
+          this.logger.log('✅ Manual retry connection successful (fallback)');
+          return true;
         }
       } catch (fallbackError) {
         this.logger.error('Fallback connection also failed:', fallbackError);
@@ -946,7 +688,7 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Validates incoming WebSocket result message data
+   * Validates incoming Socket.IO result message data
    */
   private validateResultData(resultData: any): boolean {
     if (!resultData || typeof resultData !== 'object') {
@@ -974,7 +716,7 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Creates a standardized execution result from WebSocket message data
+   * Creates a standardized execution result from Socket.IO message data
    */
   private createExecutionResult(
     commandId: string,
@@ -1010,6 +752,25 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
     });
 
     try {
+      // Validate command using DTO
+      const commandDto = plainToClass(BashRunnerCommandDto, message);
+      const validationErrors = await validate(commandDto);
+
+      if (validationErrors.length > 0) {
+        const errorMessages = validationErrors
+          .map(
+            (error) =>
+              `${error.property}: ${Object.values(error.constraints || {}).join(', ')}`,
+          )
+          .join('; ');
+        console.error(
+          `[BASH_RUNNER_DEBUG] Command validation failed: ${errorMessages}`,
+        );
+        throw new Error(`Command validation failed: ${errorMessages}`);
+      }
+
+      console.log(`[BASH_RUNNER_DEBUG] Command validation passed`);
+
       // Check if service is available
       if (!this.isAvailable()) {
         const errorMessage =
@@ -1018,23 +779,23 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
         throw new Error(errorMessage);
       }
 
-      // Ensure we're connected to the correct region before sending
+      // Ensure we're connected before sending
       if (!this.isConnected()) {
         console.log(
-          `[BASH_RUNNER_DEBUG] WebSocket not connected, attempting to connect to region ${region}...`,
+          `[BASH_RUNNER_DEBUG] Socket.IO not connected, attempting to connect...`,
         );
         await this.connectToRegion(region);
 
         // Double-check connection after connect attempt
         if (!this.isConnected()) {
           throw new Error(
-            `Failed to establish WebSocket connection to region ${region}`,
+            `Failed to establish Socket.IO connection to region ${region}`,
           );
         }
       }
 
       console.log(
-        `[BASH_RUNNER_DEBUG] Sending command ${commandId} to runner service...`,
+        `[BASH_RUNNER_DEBUG] Sending command ${commandId} to bash runner service...`,
       );
 
       return new Promise((resolve, reject) => {
@@ -1047,15 +808,16 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
         this.commandResolvers.set(commandId, { resolve, reject, timeout });
 
         try {
-          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          if (this.socket && this.socket.connected) {
             // Format message according to bash-runner's expected format
-            // The bash-runner expects the commandId to be the actual command name, not a unique ID
-            const fullMessage = {
-              type: 'runCommand',
-              commandId: message.action, // Use the action as the commandId
+            const socketMessage = {
+              commandId: commandId, // Use the unique commandId provided by the caller
               args: {
+                action: message.action, // Include the action for bash-runner to execute
                 containerId: message.containerId,
+                containerName: message.name,
                 name: message.name,
+                user: message.user,
                 subdomain: message.subdomain,
                 config: message.config,
                 lines: message.lines,
@@ -1063,19 +825,19 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
               timeout: 30000,
             };
 
-            this.ws.send(JSON.stringify(fullMessage));
+            this.socket.emit('runCommand', socketMessage);
             console.log(
-              `[BASH_RUNNER_DEBUG] Command ${commandId} successfully sent to WebSocket`,
+              `[BASH_RUNNER_DEBUG] Command ${commandId} successfully sent via Socket.IO`,
             );
             console.log(
               `[BASH_RUNNER_DEBUG] Message format:`,
-              JSON.stringify(fullMessage, null, 2),
+              JSON.stringify(socketMessage, null, 2),
             );
             resolve();
           } else {
             this.commandResolvers.delete(commandId);
             clearTimeout(timeout);
-            reject(new Error('WebSocket is not open'));
+            reject(new Error('Socket.IO is not connected'));
           }
         } catch (error) {
           this.commandResolvers.delete(commandId);
@@ -1120,7 +882,7 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Register a message interceptor that gets called for ALL WebSocket messages
+   * Register a message interceptor that gets called for ALL Socket.IO messages
    */
   onAnyMessage(interceptor: (message: any) => void): () => void {
     console.log(`[BASH_RUNNER_DEBUG] Registering general message interceptor`);
@@ -1165,7 +927,6 @@ export class BashRunnerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Test method to simulate receiving a result message
-   * This can be used for testing the interception system
    */
   testResultMessage(
     data: CommandResultData,

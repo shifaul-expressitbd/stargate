@@ -24,6 +24,7 @@ export class CreateSgtmContainerDto {
   subdomain: string;
 
   @ApiProperty({
+    description: 'Container configuration data (base64 encoded)',
     example:
       'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==',
   })

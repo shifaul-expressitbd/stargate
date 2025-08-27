@@ -1,9 +1,9 @@
 declare global {
   // Override MethodDecorator to be compatible with NestJS
   type MethodDecorator = <T>(
-    target: Object,
+    target: object,
     propertyKey: string | symbol,
-    descriptor: TypedPropertyDescriptor<T>
+    descriptor: TypedPropertyDescriptor<T>,
   ) => TypedPropertyDescriptor<T> | void;
 }
 

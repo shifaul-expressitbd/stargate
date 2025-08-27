@@ -72,18 +72,18 @@ model AuthProvider {
 }
 
 model SgtmContainer {
-  id        String          @id @default(cuid())
-  name      String // container name prefix (e.g., gtm-unified)
-  fullName  String // full container name (e.g., gtm-unified-xyz)
-  userId    String
-  user      User            @relation("UserContainers", fields: [userId], references: [id])
-  status    ContainerStatus @default(CREATED)
-  action    String? // run, list, delete
-  subdomain String? // e.g., tags.bikobazaar.xyz
-  config    String? // base64-encoded config string
-  region    String          @default("india") // Region where container is deployed
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  id          String          @id @default(cuid())
+  name        String
+  fullName    String?
+  containerId String? // Docker container ID
+  userId      String
+  user        User            @relation("UserContainers", fields: [userId], references: [id])
+  status      ContainerStatus @default(CREATED)
+  subdomain   String? // e.g., tags.bikobazaar.xyz
+  config      String? // base64-encoded config string
+  region      String          @default("india") // Region where container is deployed
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
   @@map("sgtm_containers")
 }

@@ -24,6 +24,14 @@ import { RunSgtmContainerDto } from './dto/run-sgtm-container.dto';
 @Injectable()
 export class SgtmContainerService {
   private readonly logger = new Logger(SgtmContainerService.name);
+  private pendingContainerPromises = new Map<
+    string,
+    { resolve: (value: any) => void; reject: (reason?: any) => void }
+  >();
+  private pendingTimeouts = new Map<
+    string,
+    { timeout: NodeJS.Timeout; commandId: string }
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -47,7 +55,11 @@ export class SgtmContainerService {
         `🎯 [CUSTOM INTERCEPTOR] Processing result for command: ${commandId}`,
       );
 
-      if (data.success && data.exitCode === 0) {
+      // Handle bash runner result format with defensive programming
+      const success = data.status === 'success' || data.success;
+      const exitCode = data.status === 'success' ? 0 : (data.exitCode ?? 1);
+
+      if (success && exitCode === 0) {
         this.logger.log(
           `✅ [CUSTOM INTERCEPTOR] Command ${commandId} succeeded`,
         );
@@ -58,7 +70,7 @@ export class SgtmContainerService {
         // - Log to external systems
       } else {
         this.logger.error(
-          `❌ [CUSTOM INTERCEPTOR] Command ${commandId} failed with exit code ${data.exitCode}`,
+          `❌ [CUSTOM INTERCEPTOR] Command ${commandId} failed with exit code ${exitCode}`,
         );
         // Handle failures - maybe retry logic, alerts, etc.
       }
@@ -68,36 +80,72 @@ export class SgtmContainerService {
   /**
    * Processes command execution results and returns standardized JSON responses
    */
-  private processCommandResult(
+  private async processCommandResult(
     result: CommandExecutionResult,
     operation: string,
-  ): StandardizedResponse {
+  ): Promise<StandardizedResponse> {
+    // Add defensive programming for missing success/exitCode fields
+    const success = result.success ?? (result as any).status === 'success';
+    const exitCode = result.exitCode ?? (success ? 0 : 1);
+
     this.logger.log(
-      `Command ${result.commandId} completed: success=${result.success}, exitCode=${result.exitCode}`,
+      `Command ${result.commandId} completed: success=${success}, exitCode=${exitCode}`,
     );
 
-    if (result.success && result.exitCode === 0) {
+    if (success && exitCode === 0) {
+      // Get updated container info if available
+      let containerInfo: any = null;
+      if (result.containerId) {
+        try {
+          containerInfo = await this.prisma.sgtmContainer.findUnique({
+            where: { id: result.containerId },
+            select: {
+              id: true,
+              name: true,
+              fullName: true,
+              status: true,
+              subdomain: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+        } catch (error) {
+          this.logger.warn(
+            `Could not fetch updated container info: ${error.message}`,
+          );
+        }
+      }
+
       const response: StandardizedResponse = {
         success: true,
         message: `${operation} completed successfully`,
         data: {
           commandId: result.commandId,
-          exitCode: result.exitCode,
+          exitCode: exitCode,
           executionTime: result.executionTime,
           containerId: result.containerId,
         },
       };
 
+      // Add container info if available
+      if (containerInfo) {
+        (response.data as any).container = containerInfo;
+      }
+
+      // Add Docker info if available (from the command response)
+      if (result.message && typeof result.message === 'object') {
+        (response.data as any).dockerInfo = result.message;
+      }
+
       if (result.message) {
-        this.logger.debug(`Command message: ${result.message}`);
+        this.logger.debug(`Command message: ${JSON.stringify(result.message)}`);
       }
 
       return response;
     } else {
       // Handle different error scenarios with proper error codes
       const errorMessage =
-        result.message ||
-        `${operation} failed with exit code ${result.exitCode}`;
+        result.message || `${operation} failed with exit code ${exitCode}`;
 
       this.logger.error(
         `❌ Command ${result.commandId} failed: ${errorMessage}`,
@@ -105,11 +153,11 @@ export class SgtmContainerService {
 
       // Determine error code based on exit code and operation context
       let errorCode = 'COMMAND_FAILED';
-      if (result.exitCode === 1) {
+      if (exitCode === 1) {
         errorCode = 'OPERATION_FAILED';
-      } else if (result.exitCode === 127) {
+      } else if (exitCode === 127) {
         errorCode = 'COMMAND_NOT_FOUND';
-      } else if (result.exitCode === 126) {
+      } else if (exitCode === 126) {
         errorCode = 'COMMAND_NOT_EXECUTABLE';
       }
 
@@ -118,7 +166,7 @@ export class SgtmContainerService {
         message: errorMessage,
         error: {
           code: errorCode,
-          details: `${operation} failed with exit code ${result.exitCode}`,
+          details: `${operation} failed with exit code ${exitCode}`,
         },
       });
     }
@@ -133,46 +181,20 @@ export class SgtmContainerService {
     operation: string,
   ): Promise<CommandExecutionResult> {
     return new Promise<CommandExecutionResult>((resolve, reject) => {
-      // Set timeout for the operation (e.g., 2 minutes)
+      // Store the promise resolvers for the webhook interceptor to use
+      this.pendingContainerPromises.set(commandId, { resolve, reject });
+
+      // Set timeout for the operation (2 minutes)
       const timeout = setTimeout(() => {
+        // Remove from pending promises if still there
+        this.pendingContainerPromises.delete(commandId);
         reject(new Error(`${operation} timed out after 2 minutes`));
       }, 120000);
 
-      // Listen for result messages
-      const resultHandler = this.bashRunnerService.onMessage(
-        `container-result:${commandId}`,
-        (data: any) => {
-          clearTimeout(timeout);
-          resolve({
-            success: data.success,
-            exitCode: data.exitCode,
-            message: data.message,
-            commandId,
-            action: operation,
-            containerId,
-            executionTime: Date.now(),
-          });
-        },
-      );
-
-      // Listen for error messages
-      const errorHandler = this.bashRunnerService.onMessage(
-        `container-error:${commandId}`,
-        (error: string) => {
-          clearTimeout(timeout);
-          reject(new Error(error));
-        },
-      );
-
-      // Cleanup handlers when promise settles
-      const cleanup = () => {
-        resultHandler();
-        errorHandler();
-      };
-
-      // Set up cleanup on resolve/reject
-      (resolve as any).cleanup = cleanup;
-      (reject as any).cleanup = cleanup;
+      // Store timeout for cleanup
+      const timeoutRef = { timeout, commandId };
+      this.pendingTimeouts = this.pendingTimeouts || new Map();
+      this.pendingTimeouts.set(commandId, timeoutRef);
     });
   }
 
@@ -185,12 +207,67 @@ export class SgtmContainerService {
         `🎯 [WEBHOOK INTERCEPTOR] Processing result for command: ${commandId}`,
       );
 
+      // Map bash runner result format to expected CommandExecutionResult format
+      let success: boolean;
+      let exitCode: number;
+
+      if (data.status === 'success') {
+        success = true;
+        exitCode = 0;
+      } else {
+        success = data.success || false;
+        exitCode = data.exitCode || 1;
+      }
+
+      // Check if this result is for a container operation and resolve any waiting promises
+      if (
+        commandId.startsWith('create-') ||
+        commandId.startsWith('run-') ||
+        commandId.startsWith('stop-')
+      ) {
+        const containerId = this.getContainerIdFromCommandId(commandId);
+        const action = this.getActionFromCommandId(commandId);
+
+        // Resolve any waiting promises for this command
+        const waitingPromise = this.pendingContainerPromises.get(commandId);
+        if (waitingPromise) {
+          this.pendingContainerPromises.delete(commandId);
+
+          // Clear the timeout
+          const timeoutRef = this.pendingTimeouts.get(commandId);
+          if (timeoutRef) {
+            clearTimeout(timeoutRef.timeout);
+            this.pendingTimeouts.delete(commandId);
+          }
+
+          const executionResult: CommandExecutionResult = {
+            success,
+            exitCode,
+            message: data.data || data.message,
+            commandId,
+            action,
+            containerId,
+            executionTime: Date.now(),
+            dockerInfo:
+              success && exitCode === 0 && (data.data || data.message)
+                ? data.data || data.message
+                : null,
+          };
+
+          if (success) {
+            waitingPromise.resolve(executionResult);
+          } else {
+            waitingPromise.reject(new Error(data.error || 'Command failed'));
+          }
+        }
+      }
+
       // Format the result for REST API response
       const formattedResult = this.processCommandResult(
         {
-          success: data.success,
-          exitCode: data.exitCode,
-          message: data.message,
+          success,
+          exitCode,
+          message: data.data || data.message,
           commandId,
           action: this.getActionFromCommandId(commandId),
           containerId: this.getContainerIdFromCommandId(commandId),
@@ -203,8 +280,53 @@ export class SgtmContainerService {
         `📤 [WEBHOOK INTERCEPTOR] Formatted result for REST API: ${JSON.stringify(formattedResult)}`,
       );
 
+      // Extract Docker information and update database if available
+      if (success && exitCode === 0 && (data.data || data.message)) {
+        const dockerInfo = data.data || data.message;
+        if (
+          typeof dockerInfo === 'object' &&
+          dockerInfo.name &&
+          dockerInfo.id
+        ) {
+          const containerDbId = this.getContainerIdFromCommandId(commandId);
+          if (containerDbId) {
+            // Fire and forget - update database with Docker info
+            this.updateContainerWithDockerInfo(containerDbId, {
+              name: dockerInfo.name, // This will be stored in fullName
+              id: dockerInfo.id, // This will be stored in containerId
+              status: dockerInfo.status,
+              domain: dockerInfo.domain,
+            })
+              .then(() => {
+                this.logger.log(
+                  `✅ Updated container ${containerDbId} with Docker info from ${commandId}`,
+                );
+              })
+              .catch((error) => {
+                this.logger.warn(
+                  `Failed to update container ${containerDbId} with Docker info: ${error.message}`,
+                );
+              });
+          }
+        }
+      }
+
       // Here you could also emit an event or store the result for later retrieval
     });
+  }
+
+  /**
+   * Cleanup method to remove event handlers and prevent memory leaks
+   */
+  private cleanupCommandHandlers(commandId: string) {
+    try {
+      this.bashRunnerService.offMessage(`result`);
+      this.bashRunnerService.offMessage(`error`);
+      this.bashRunnerService.offMessage(`output`);
+      this.logger.debug(`Cleaned up handlers for command: ${commandId}`);
+    } catch (error) {
+      this.logger.warn(`Error cleaning up handlers for ${commandId}:`, error);
+    }
   }
 
   /**
@@ -232,6 +354,73 @@ export class SgtmContainerService {
   private getOperationFromCommandId(commandId: string): string {
     const action = this.getActionFromCommandId(commandId);
     return `Container ${action}`;
+  }
+
+  /**
+   * Update container record with real Docker container information
+   */
+  private async updateContainerWithDockerInfo(
+    containerId: string,
+    dockerInfo: any,
+  ) {
+    try {
+      this.logger.log(
+        `Updating container ${containerId} with Docker info:`,
+        dockerInfo,
+      );
+
+      const updateData: any = {};
+
+      // Update with real Docker container information
+      if (dockerInfo.name) {
+        updateData.fullName = dockerInfo.name; // Override the generated name with actual Docker name
+      }
+
+      if (dockerInfo.id) {
+        updateData.containerId = dockerInfo.id; // Store the Docker container ID
+      }
+
+      if (dockerInfo.status) {
+        // Map Docker status to our enum
+        switch (dockerInfo.status.toLowerCase()) {
+          case 'running':
+            updateData.status = ContainerStatus.RUNNING;
+            break;
+          case 'stopped':
+          case 'exited':
+            updateData.status = ContainerStatus.STOPPED;
+            break;
+          case 'created':
+            updateData.status = ContainerStatus.CREATED;
+            break;
+          default:
+            updateData.status = ContainerStatus.ERROR;
+        }
+      }
+
+      if (dockerInfo.domain) {
+        updateData.subdomain = dockerInfo.domain; // Update subdomain with actual domain
+      }
+
+      // Only update if we have data to update
+      if (Object.keys(updateData).length > 0) {
+        const updatedContainer = await this.prisma.sgtmContainer.update({
+          where: { id: containerId },
+          data: updateData,
+        });
+
+        this.logger.log(
+          `✅ Container ${containerId} updated with Docker info: ${updatedContainer.fullName}`,
+        );
+        return updatedContainer;
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to update container ${containerId} with Docker info:`,
+        error,
+      );
+      throw error;
+    }
   }
 
   async create(userId: string, dto: CreateSgtmContainerDto) {
@@ -286,21 +475,24 @@ export class SgtmContainerService {
         // Generate a unique command ID for tracking this operation
         const commandId = `create-${container.id}-${Date.now()}`;
 
+        this.logger.log(`Sending container creation command: ${commandId}`);
+
         // Use WebSocket to run container
         await this.bashRunnerService.sendCommand(
           commandId,
           {
             commandId: commandId,
-            action: 'docker-tagserver',
+            action: 'docker-tagserver-run',
             containerId: container.id,
-            name: container.fullName,
             subdomain: dto.subdomain || container.subdomain || undefined,
             config: dto.config || container.config || undefined,
+            name: dto.name, // Container name prefix (required)
+            user: userId, // Required: user identifier
           },
           region,
         );
 
-        // Wait for the container result
+        // Wait for the container result with improved error handling
         const executionResult = await this.waitForContainerResult(
           commandId,
           container.id,
@@ -314,37 +506,96 @@ export class SgtmContainerService {
             data: { status: ContainerStatus.RUNNING },
           });
           this.logger.log(`Container ${container.id} started successfully`);
+
+          // Use Docker info from executionResult if available, otherwise use container data
+          const dockerContainerId =
+            executionResult.dockerInfo?.id || container.containerId;
+          const dockerContainerName =
+            executionResult.dockerInfo?.name || container.fullName;
+
+          // Return the standardized response with container information
+          return {
+            success: true,
+            message: 'Container created and started successfully',
+            data: {
+              commandId: executionResult.commandId,
+              exitCode: executionResult.exitCode,
+              executionTime: executionResult.executionTime,
+              id: container.id,
+              container: {
+                containerId: dockerContainerId,
+                name: container.name,
+                fullName: dockerContainerName,
+                status: ContainerStatus.RUNNING,
+                subdomain: container.subdomain,
+                createdAt: container.createdAt,
+                updatedAt: container.updatedAt,
+              },
+            },
+            timestamp: new Date().toISOString(),
+            path: '/api/sgtm-containers',
+            method: 'POST',
+          };
         } else {
           await this.prisma.sgtmContainer.update({
             where: { id: container.id },
             data: { status: ContainerStatus.ERROR },
           });
           this.logger.warn(`Container ${container.id} failed to start`);
-        }
 
-        // Return the standardized response with container information
-        return this.processCommandResult(executionResult, 'Container creation');
+          // Return error response
+          return {
+            success: false,
+            message: 'Container created but failed to start',
+            data: {
+              id: container.id,
+              container: {
+                containerId: container.containerId,
+                name: container.name,
+                fullName: container.fullName,
+                status: ContainerStatus.ERROR,
+                subdomain: container.subdomain,
+                createdAt: container.createdAt,
+                updatedAt: container.updatedAt,
+              },
+              error: executionResult.message,
+            },
+            timestamp: new Date().toISOString(),
+            path: '/api/sgtm-containers',
+            method: 'POST',
+          };
+        }
       } catch (error) {
         this.logger.warn(
           `Container created but failed to start automatically: ${error.message}`,
         );
-        // Return the container creation success but with warning about startup
+
+        // Update container status to ERROR
+        await this.prisma.sgtmContainer.update({
+          where: { id: container.id },
+          data: { status: ContainerStatus.ERROR },
+        });
+
+        // Return the container creation success but with error details
         return {
-          success: true,
-          message:
-            'Container created successfully but automatic startup failed',
+          success: false,
+          message: 'Container created but automatic startup failed',
           data: {
+            id: container.id,
             container: {
-              id: container.id,
+              containerId: container.containerId,
               name: container.name,
               fullName: container.fullName,
-              status: ContainerStatus.CREATED,
+              status: ContainerStatus.ERROR,
               subdomain: container.subdomain,
               createdAt: container.createdAt,
               updatedAt: container.updatedAt,
             },
             startupError: error.message,
           },
+          timestamp: new Date().toISOString(),
+          path: '/api/sgtm-containers',
+          method: 'POST',
         };
       }
     } else {
@@ -356,8 +607,9 @@ export class SgtmContainerService {
         success: true,
         message: 'Container created successfully (runner service unavailable)',
         data: {
+          id: container.id,
           container: {
-            id: container.id,
+            containerId: container.containerId,
             name: container.name,
             fullName: container.fullName,
             status: ContainerStatus.CREATED,
@@ -367,6 +619,9 @@ export class SgtmContainerService {
           },
           warning: 'Bash runner service unavailable - container not started',
         },
+        timestamp: new Date().toISOString(),
+        path: '/api/sgtm-containers',
+        method: 'POST',
       };
     }
   }
@@ -464,7 +719,7 @@ export class SgtmContainerService {
                   exitCode: 0,
                   message: 'Container started successfully',
                   commandId,
-                  action: 'run',
+                  action: 'docker-tagserver-run',
                   containerId: container.id,
                   executionTime: Date.now(),
                 });
@@ -518,11 +773,12 @@ export class SgtmContainerService {
           commandId,
           {
             commandId: commandId,
-            action: 'docker-tagserver',
+            action: 'docker-tagserver-run',
             containerId: container.id,
-            name: container.fullName,
             subdomain: runDto.subdomain || container.subdomain || undefined,
             config: runDto.config || container.config || undefined,
+            name: container.name, // Container name prefix (required)
+            user: userId, // Required: user identifier
           },
           container.region as RegionKey,
         );
@@ -582,6 +838,16 @@ export class SgtmContainerService {
       throw new BadRequestException('Container is not running');
     }
 
+    // Check if container has a Docker container ID
+    if (!container.containerId) {
+      this.logger.warn(
+        `Container ${id} does not have a Docker container ID. It may not be running or was not properly started.`,
+      );
+      throw new BadRequestException(
+        'Container does not have a Docker container ID. Cannot stop a container that was not properly started.',
+      );
+    }
+
     this.logger.log(`Updating container ${id} status to PENDING (for stop)`);
     await this.prisma.sgtmContainer.update({
       where: { id },
@@ -601,6 +867,7 @@ export class SgtmContainerService {
       console.log(`[CONTAINER_DEBUG] Container details:`, {
         id: container.id,
         fullName: container.fullName,
+        dockerContainerId: container.containerId,
         subdomain: container.subdomain,
       });
 
@@ -643,7 +910,7 @@ export class SgtmContainerService {
                   exitCode: 0,
                   message: 'Container stopped successfully',
                   commandId,
-                  action: 'stop',
+                  action: 'docker-tagserver-stop',
                   containerId: container.id,
                   executionTime: Date.now(),
                 });
@@ -697,9 +964,9 @@ export class SgtmContainerService {
           commandId,
           {
             commandId: commandId,
-            action: 'stop',
-            containerId: container.id,
-            name: container.fullName,
+            action: 'docker-tagserver-stop',
+            containerId: container.containerId, // Use Docker container ID instead of database ID
+            user: userId, // Required: user identifier
           },
           container.region as RegionKey,
         );
@@ -823,9 +1090,9 @@ export class SgtmContainerService {
           commandId,
           {
             commandId: commandId,
-            action: 'get-logs',
+            action: 'docker-tagserver-get',
             containerId: container.id,
-            name: container.fullName,
+            user: userId, // Required: user identifier
             lines,
           },
           container.region as RegionKey,
@@ -909,7 +1176,7 @@ export class SgtmContainerService {
                 exitCode: 0,
                 message: 'Container deleted successfully',
                 commandId,
-                action: 'delete',
+                action: 'docker-tagserver-delete',
                 containerId: container.id,
                 executionTime: Date.now(),
               });
@@ -947,9 +1214,9 @@ export class SgtmContainerService {
           commandId,
           {
             commandId: commandId,
-            action: 'delete',
+            action: 'docker-tagserver-delete',
             containerId: container.id,
-            name: container.fullName,
+            user: userId, // Required: user identifier
           },
           container.region as RegionKey,
         );

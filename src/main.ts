@@ -37,14 +37,24 @@ async function bootstrap() {
 
   // CORS
   const configService = app.get(ConfigService);
+  const corsOrigins = [
+    configService.get('FRONTEND_URL') || 'http://localhost:5173',
+    'http://localhost:4000',
+    'http://localhost:3000',
+    'http://localhost:4173',
+    'https://accounts.google.com', // Add Google OAuth domain
+  ];
+
   app.enableCors({
-    origin: [
-      configService.get('FRONTEND_URL') || 'http://localhost:5173',
-      'https://accounts.google.com', // Add Google OAuth domain
-    ],
+    origin: corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'X-API-Key',
+    ],
   });
 
   // Create SwaggerService instance and initialize

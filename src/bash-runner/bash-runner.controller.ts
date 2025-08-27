@@ -1,63 +1,127 @@
-import { Controller, Get, Logger } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Logger,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { BashRunnerService } from './bash-runner.service';
 
+interface RunCommandDto {
+  commandId: string;
+  args?: string[];
+  timeout?: number;
+}
+
+interface ApiKeyDto {
+  apiKey: string;
+}
+
 @Controller('api/bash-runner')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth('JWT-auth')
 export class BashRunnerController {
   private readonly logger = new Logger(BashRunnerController.name);
 
   constructor(private readonly bashRunnerService: BashRunnerService) {}
 
+  @Post('command')
+  async runCommand(
+    @Body() dto: RunCommandDto,
+    @Headers('x-api-key') apiKey?: string,
+    @Query('apiKey') queryApiKey?: string,
+  ) {
+    try {
+      const { commandId, args, timeout } = dto;
+
+      if (!commandId) {
+        return {
+          status: 400,
+          error: 'commandId is required',
+        };
+      }
+
+      // Use API key from header or query parameter
+      const key = apiKey || queryApiKey;
+      if (!key) {
+        return {
+          status: 401,
+          error: 'API key required',
+        };
+      }
+
+      this.logger.log(
+        `REST command received: ${commandId} with API key: ${key}`,
+      );
+
+      // Create a unique command ID for tracking
+      const uniqueCommandId = `${commandId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      try {
+        // Execute the command
+        await this.bashRunnerService.sendCommand(uniqueCommandId, {
+          commandId: commandId,
+          action: commandId,
+          containerId: args?.[0],
+          name: args?.[1],
+          user: 'rest-user', // In a real app, you'd get this from JWT token
+          subdomain: args?.[2],
+          config: args?.[3],
+          lines: args?.[4] ? parseInt(args[4]) : undefined,
+        });
+
+        // For REST API, we return immediate success since the actual result
+        // will be handled asynchronously. In a production app, you might want
+        // to implement polling or server-sent events for real-time updates.
+        return {
+          status: 200,
+          message: 'Command sent successfully',
+          commandId: uniqueCommandId,
+          note: 'Use Socket.IO connection for real-time output streaming',
+        };
+      } catch (error: any) {
+        return {
+          status: 500,
+          error: error.message || 'Command execution failed',
+          commandId: uniqueCommandId,
+        };
+      }
+    } catch (error: any) {
+      this.logger.error('Error in REST command execution:', error);
+      return {
+        status: 500,
+        error: error.message || 'Internal server error',
+      };
+    }
+  }
+
   @Get('health')
   async getHealth() {
     try {
-      const healthInfo = await this.bashRunnerService.getHealthInfo();
+      const health = await this.bashRunnerService.getHealthInfo();
       return {
-        success: true,
-        data: healthInfo,
-        timestamp: new Date().toISOString(),
+        status: 200,
+        data: health,
       };
-    } catch (error) {
-      this.logger.error('Health check failed:', error);
+    } catch (error: any) {
       return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString(),
+        status: 500,
+        error: error.message || 'Failed to get health info',
       };
     }
   }
 
-  @Get('status')
-  getStatus() {
+  @Post('ping')
+  async ping() {
     return {
-      success: true,
-      data: {
-        isConnected: this.bashRunnerService.isConnected(),
-        isAvailable: this.bashRunnerService.isAvailable(),
-        connectionStatus: this.bashRunnerService.getConnectionStatus(),
-      },
+      status: 200,
+      message: 'pong',
       timestamp: new Date().toISOString(),
     };
-  }
-
-  @Get('retry')
-  async retryConnection() {
-    try {
-      const success = await this.bashRunnerService.retryConnection();
-      return {
-        success: true,
-        data: {
-          connectionAttempted: true,
-          connectionSuccessful: success,
-        },
-        timestamp: new Date().toISOString(),
-      };
-    } catch (error) {
-      this.logger.error('Retry connection failed:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString(),
-      };
-    }
   }
 }
