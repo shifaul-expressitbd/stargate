@@ -12,18 +12,15 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import {
   ApiBearerAuth,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { BashRunnerService } from '../bash-runner/bash-runner.service';
 import { User } from '../common/decorators/user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { CreateSgtmContainerDto } from './dto/create-sgtm-container.dto';
-import { RunSgtmContainerDto } from './dto/run-sgtm-container.dto';
+import { CreateSgtmContainerDto } from './dto/sgtm-container.dto';
 import { SgtmContainerService } from './sgtm-container.service';
 
 @ApiTags('sGTM-containers')
@@ -31,17 +28,13 @@ import { SgtmContainerService } from './sgtm-container.service';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('JWT-auth')
 export class SgtmContainerController {
-  constructor(
-    private readonly sgtmContainerService: SgtmContainerService,
-    private readonly bashRunnerService: BashRunnerService,
-    private readonly configService: ConfigService,
-  ) {}
+  constructor(private readonly sgtmContainerService: SgtmContainerService) {}
 
   @Post()
   @ApiOperation({
     summary: 'Create a new GTM container',
     description:
-      'Creates and starts a new GTM container using the docker-tagserver-run command. The container will be automatically configured with Nginx and SSL if available.',
+      'Creates and starts a new GTM container using the docker-tagserver-create command. The container will be automatically configured with Nginx and SSL if available.',
   })
   @ApiResponse({
     status: 201,
@@ -206,6 +199,42 @@ export class SgtmContainerController {
     return this.sgtmContainerService.findAllByUser(userId);
   }
 
+  @Get('sync')
+  @ApiOperation({
+    summary: 'Get and sync all GTM containers for the current user',
+    description: 'Retrieves all containers for the user and synchronizes their details with the external docker service using docker-tagserver-list command. Updates the database with fresh information for all containers.'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Containers retrieved and synced successfully',
+    content: {
+      'application/json': {
+        schema: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', example: 'cmeqncqjh0001jxf3a2sibmvy' },
+              name: { type: 'string', example: 'gtm-unified' },
+              fullName: { type: 'string', example: 'sgtm-cmepifo1-d58058f9' },
+              containerId: { type: 'string', example: 'a1b2c3d4e5f6' },
+              status: { type: 'string', enum: ['PENDING', 'RUNNING', 'STOPPED', 'ERROR', 'DELETED'], example: 'RUNNING' },
+              subdomain: { type: 'string', example: 'tags.bikobazaar.xyz' },
+              config: { type: 'string', example: 'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==' },
+              region: { type: 'string', example: 'us-east-1' },
+              userId: { type: 'string', example: 'cmepifo1d58058f9' },
+              createdAt: { type: 'string', format: 'date-time' },
+              updatedAt: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    },
+  })
+  async findAllWithSync(@User('id') userId: string) {
+    return this.sgtmContainerService.findAllByUserWithSync(userId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a specific GTM container' })
   @ApiResponse({ status: 200, description: 'Container retrieved successfully' })
@@ -214,69 +243,30 @@ export class SgtmContainerController {
     return this.sgtmContainerService.findByIdAndUser(id, userId);
   }
 
-  @Post(':id/run')
-  @HttpCode(HttpStatus.OK)
+  @Get(':id/sync')
   @ApiOperation({
-    summary: 'Run a GTM container',
-    description:
-      'Starts a stopped or created GTM container using the docker-tagserver-run command.',
+    summary: 'Get and sync a specific GTM container',
+    description: 'Retrieves a container and synchronizes its details with the external docker service using docker-tagserver-get command. Updates the database with fresh information.'
   })
   @ApiResponse({
     status: 200,
-    description: 'Container started successfully',
+    description: 'Container retrieved and synced successfully',
     content: {
       'application/json': {
         schema: {
           type: 'object',
           properties: {
-            success: { type: 'boolean', example: true },
-            message: {
-              type: 'string',
-              example: 'Container run completed successfully',
-            },
-            data: {
-              type: 'object',
-              properties: {
-                commandId: {
-                  type: 'string',
-                  example: 'run-cmeqncqjh0001jxf3a2sibmvy-1756097908843',
-                },
-                exitCode: { type: 'number', example: 0 },
-                executionTime: { type: 'number', example: 1756097908843 },
-                containerId: {
-                  type: 'string',
-                  example: 'cmeqncqjh0001jxf3a2sibmvy',
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'Container is already running or invalid request',
-    content: {
-      'application/json': {
-        schema: {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean', example: false },
-            message: {
-              type: 'string',
-              example: 'Container is already running',
-            },
-            error: {
-              type: 'object',
-              properties: {
-                code: { type: 'string', example: 'CONTAINER_ALREADY_RUNNING' },
-                details: {
-                  type: 'string',
-                  example: 'Cannot start container that is already running',
-                },
-              },
-            },
+            id: { type: 'string', example: 'cmeqncqjh0001jxf3a2sibmvy' },
+            name: { type: 'string', example: 'gtm-unified' },
+            fullName: { type: 'string', example: 'sgtm-cmepifo1-d58058f9' },
+            containerId: { type: 'string', example: 'a1b2c3d4e5f6' },
+            status: { type: 'string', enum: ['PENDING', 'RUNNING', 'STOPPED', 'ERROR', 'DELETED'], example: 'RUNNING' },
+            subdomain: { type: 'string', example: 'tags.bikobazaar.xyz' },
+            config: { type: 'string', example: 'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==' },
+            region: { type: 'string', example: 'us-east-1' },
+            userId: { type: 'string', example: 'cmepifo1d58058f9' },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
           },
         },
       },
@@ -291,18 +281,12 @@ export class SgtmContainerController {
           type: 'object',
           properties: {
             success: { type: 'boolean', example: false },
-            message: {
-              type: 'string',
-              example: 'Container not found or access denied',
-            },
+            message: { type: 'string', example: 'Container not found or access denied' },
             error: {
               type: 'object',
               properties: {
                 code: { type: 'string', example: 'CONTAINER_NOT_FOUND' },
-                details: {
-                  type: 'string',
-                  example: 'No container found with the specified ID',
-                },
+                details: { type: 'string', example: 'No container found with the specified ID' },
               },
             },
           },
@@ -310,12 +294,8 @@ export class SgtmContainerController {
       },
     },
   })
-  async run(
-    @Param('id') id: string,
-    @User('id') userId: string,
-    @Body() runDto: RunSgtmContainerDto,
-  ) {
-    return this.sgtmContainerService.run(id, userId, runDto);
+  async findOneWithSync(@Param('id') id: string, @User('id') userId: string) {
+    return this.sgtmContainerService.findByIdAndUserWithSync(id, userId);
   }
 
   @Post(':id/stop')
@@ -415,42 +395,63 @@ export class SgtmContainerController {
     return this.sgtmContainerService.stop(id, userId);
   }
 
-  @Get(':id/logs')
+  @Post(':id/restart')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Get logs for a GTM container',
+    summary: 'Restart a GTM container',
     description:
-      'Retrieves logs from a GTM container using the docker-tagserver-get command.',
+      'Restarts a GTM container using the docker-tagserver-restart command.',
   })
   @ApiResponse({
     status: 200,
-    description: 'Logs retrieved successfully',
+    description: 'Container restarted successfully',
     content: {
       'application/json': {
         schema: {
-          type: 'string',
-          example:
-            '2024-08-26 10:30:15 [INFO] Container started successfully\n2024-08-26 10:30:16 [INFO] GTM configuration loaded\n2024-08-26 10:30:17 [INFO] Server listening on port 80',
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: true },
+            message: {
+              type: 'string',
+              example: 'Container restart completed successfully',
+            },
+            data: {
+              type: 'object',
+              properties: {
+                commandId: {
+                  type: 'string',
+                  example: 'restart-cmeqncqjh0001jxf3a2sibmvy-1756097908843',
+                },
+                exitCode: { type: 'number', example: 0 },
+                executionTime: { type: 'number', example: 1756097908843 },
+                containerId: {
+                  type: 'string',
+                  example: 'cmeqncqjh0001jxf3a2sibmvy',
+                },
+              },
+            },
+          },
         },
       },
     },
   })
   @ApiResponse({
     status: 400,
-    description: 'Failed to retrieve logs',
+    description: 'Container cannot be restarted or invalid request',
     content: {
       'application/json': {
         schema: {
           type: 'object',
           properties: {
             success: { type: 'boolean', example: false },
-            message: { type: 'string', example: 'Failed to get logs' },
+            message: { type: 'string', example: 'Cannot restart deleted container' },
             error: {
               type: 'object',
               properties: {
-                code: { type: 'string', example: 'LOGS_RETRIEVAL_FAILED' },
+                code: { type: 'string', example: 'CONTAINER_DELETED' },
                 details: {
                   type: 'string',
-                  example: 'Unable to retrieve container logs',
+                  example: 'Cannot restart container that has been deleted',
                 },
               },
             },
@@ -487,12 +488,8 @@ export class SgtmContainerController {
       },
     },
   })
-  async getLogs(
-    @Param('id') id: string,
-    @User('id') userId: string,
-    @Query('lines') lines?: number,
-  ) {
-    return this.sgtmContainerService.getLogs(id, userId, lines || 100);
+  async restart(@Param('id') id: string, @User('id') userId: string) {
+    return this.sgtmContainerService.restart(id, userId);
   }
 
   @Delete(':id')
@@ -595,24 +592,95 @@ export class SgtmContainerController {
     return this.sgtmContainerService.delete(id, userId);
   }
 
-  @Get('health/bash-runner')
-  @ApiOperation({ summary: 'Check bash runner service health' })
-  @ApiResponse({ status: 200, description: 'Service health status retrieved' })
-  async getBashRunnerHealth() {
-    const isConnected = this.bashRunnerService.isConnected();
-    const isAvailable = this.bashRunnerService.isAvailable();
-    const connectionStatus = this.bashRunnerService.getConnectionStatus();
-
-    return {
-      status: isConnected
-        ? 'healthy'
-        : isAvailable
-          ? 'connecting'
-          : 'unavailable',
-      isConnected,
-      isAvailable,
-      connectionStatus,
-      timestamp: new Date().toISOString(),
-    };
+  @Delete(':id/hard')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Hard delete a GTM container (permanent deletion)',
+    description:
+      'Permanently deletes a GTM container from both the external service and the database. This action cannot be undone.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Container hard deleted successfully',
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: true },
+            message: {
+              type: 'string',
+              example: 'Container hard delete completed successfully',
+            },
+            data: {
+              type: 'object',
+              properties: {
+                id: {
+                  type: 'string',
+                  example: 'cmeqncqjh0001jxf3a2sibmvy',
+                },
+                deleted: { type: 'boolean', example: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid request or hard delete failed',
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: false },
+            message: { type: 'string', example: 'Container hard delete failed' },
+            error: {
+              type: 'object',
+              properties: {
+                code: { type: 'string', example: 'HARD_DELETE_FAILED' },
+                details: {
+                  type: 'string',
+                  example: 'Failed to hard delete container from external service',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Container not found',
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: false },
+            message: {
+              type: 'string',
+              example: 'Container not found or access denied',
+            },
+            error: {
+              type: 'object',
+              properties: {
+                code: { type: 'string', example: 'CONTAINER_NOT_FOUND' },
+                details: {
+                  type: 'string',
+                  example: 'No container found with the specified ID',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  async hardDelete(@Param('id') id: string, @User('id') userId: string) {
+    return this.sgtmContainerService.hardDelete(id, userId);
   }
 }

@@ -221,7 +221,7 @@ export class SgtmRegionService {
       {
         key: 'india',
         name: 'India',
-        apiUrl: 'ws://localhost:4000/ws',
+        apiUrl: 'http://localhost:4000',
         apiKey:
           'a730cb231049b818f22496b6c4708b0b774e43e24159d77b5450b178326b7436d865bcb3428d87069df6416df5908387619103965aed0206758d52717579fb07',
         description: 'Primary region - India',
@@ -231,7 +231,7 @@ export class SgtmRegionService {
       {
         key: 'us-east',
         name: 'US East',
-        apiUrl: 'ws://us-east.example.com/ws',
+        apiUrl: 'http://us-east.example.com',
         apiKey: 'us-east-api-key',
         description: 'US East Coast region',
         isDefault: false,
@@ -240,7 +240,7 @@ export class SgtmRegionService {
       {
         key: 'us-west',
         name: 'US West',
-        apiUrl: 'ws://us-west.example.com/ws',
+        apiUrl: 'http://us-west.example.com',
         apiKey: 'us-west-api-key',
         description: 'US West Coast region',
         isDefault: false,
@@ -249,7 +249,7 @@ export class SgtmRegionService {
       {
         key: 'europe',
         name: 'Europe',
-        apiUrl: 'ws://europe.example.com/ws',
+        apiUrl: 'http://europe.example.com',
         apiKey: 'europe-api-key',
         description: 'European region',
         isDefault: false,

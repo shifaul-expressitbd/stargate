@@ -7,7 +7,6 @@ import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
-import { BashRunnerModule } from './bash-runner/bash-runner.module';
 import { ImpersonationGuard } from './common/guards/impersonation.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -56,7 +55,6 @@ import { UsersModule } from './users/users.module';
     SgtmRegionModule,
     MailModule,
     AdminModule,
-    BashRunnerModule,
   ],
   controllers: [AppController],
   providers: [
