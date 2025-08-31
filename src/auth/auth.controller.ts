@@ -28,6 +28,8 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../database/prisma/prisma.service';
+import { UrlConfigService } from '../config/url.config';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { Public } from '../common/decorators/public.decorator';
 import { User } from '../common/decorators/user.decorator';
@@ -60,7 +62,9 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
+    private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly urlConfigService: UrlConfigService,
   ) {}
 
   private createSuccessResponse<T>(message: string, data?: T): ApiResponse<T> {
@@ -396,11 +400,9 @@ export class AuthController {
       const updatedUser = await this.usersService.markEmailAsVerified(user.id);
       this.logger.log(`✅ Email verified for user: ${updatedUser.email}`);
 
-      const frontendUrl = this.configService.get(
-        'FRONTEND_URL',
-        'http://localhost:5173',
-      );
-      const redirectUrl = `${frontendUrl}/auth/verify-email?success=true`;
+      const redirectUrl = this.urlConfigService.getAuthRedirectUrl(true, {
+        success: 'true',
+      });
 
       const response = this.createSuccessResponse(
         'Email verified successfully',
@@ -423,10 +425,11 @@ export class AuthController {
     } catch (error) {
       this.logger.error('Email verification error:', error.message);
 
-      const frontendUrl = this.configService.get(
-        'FRONTEND_URL',
-        'http://localhost:5173',
-      );
+      const errorRedirectUrl = this.urlConfigService.getAuthRedirectUrl(false, {
+        error: 'true',
+        message: encodeURIComponent(error.message),
+      });
+
       const errorResponse = this.createErrorResponse(
         error.message,
         'VERIFICATION_FAILED',
@@ -437,8 +440,7 @@ export class AuthController {
       if (accept.includes('application/json')) {
         return res.status(400).json(errorResponse);
       } else {
-        const redirectUrl = `${frontendUrl}/auth/verify-email?error=true&message=${encodeURIComponent(error.message)}`;
-        return res.redirect(redirectUrl);
+        return res.redirect(errorRedirectUrl);
       }
     }
   }
@@ -471,23 +473,22 @@ export class AuthController {
   async googleAuthRedirect(@Req() req: Request, @Res() res: Response) {
     try {
       const result = await this.authService.googleLogin(req.user);
-      const frontendUrl = this.configService.get(
-        'FRONTEND_URL',
-        'http://localhost:5173',
-      );
 
       this.logger.log(`✅ Google OAuth successful for: ${result.user.email}`);
 
-      const redirectUrl = `${frontendUrl}/auth/callback?success=true&token=${result.accessToken}&refresh=${result.refreshToken}&user=${encodeURIComponent(JSON.stringify(result.user))}`;
+      const redirectUrl = this.urlConfigService.getAuthRedirectUrl(true, {
+        token: result.accessToken,
+        refresh: result.refreshToken,
+        user: JSON.stringify(result.user),
+      });
       return res.redirect(redirectUrl);
     } catch (error) {
       this.logger.error('Google OAuth callback error:', error.message);
-      const frontendUrl = this.configService.get(
-        'FRONTEND_URL',
-        'http://localhost:5173',
-      );
 
-      const redirectUrl = `${frontendUrl}/auth/callback?error=oauth_failed&message=${encodeURIComponent(error.message)}`;
+      const redirectUrl = this.urlConfigService.getAuthRedirectUrl(false, {
+        error: 'oauth_failed',
+        message: encodeURIComponent(error.message),
+      });
       return res.redirect(redirectUrl);
     }
   }
@@ -513,19 +514,161 @@ export class AuthController {
     },
   })
   getGoogleConfig(): ApiResponse {
-    const baseUrl =
-      process.env.NODE_ENV === 'production'
-        ? 'https://your-domain.com'
-        : 'http://localhost:5555';
+    const baseUrl = this.urlConfigService.getBaseUrl();
 
     const config = {
       clientId: this.configService.get('GOOGLE_CLIENT_ID'),
-      callbackUrl: `${baseUrl}/api/auth/google/callback`,
-      authUrl: `${baseUrl}/api/auth/google`,
+      callbackUrl: this.urlConfigService.getOAuthCallbackUrl('google'),
+      authUrl: this.urlConfigService.getOAuthAuthUrl('google'),
     };
 
     return this.createSuccessResponse(
       'Google OAuth configuration retrieved',
+      config,
+    );
+  }
+
+  // ========== GOOGLE GTM OAUTH (Google Tag Manager) ==========
+
+  @Public()
+  @Get('google-gtm')
+  @ApiOperation({
+    summary: 'Initiate Google GTM OAuth login',
+  })
+  @ApiResponse({
+    status: 302,
+    description: 'Redirect to Google GTM OAuth',
+  })
+  @UseGuards(AuthGuard('google-gtm'))
+  async googleGtmAuth() {
+    // Passport handles redirect automatically
+  }
+
+  @Public()
+  @Get('google-gtm/callback')
+  @ApiOperation({
+    summary: 'Google GTM OAuth callback handler',
+  })
+  @ApiResponse({
+    status: 302,
+    description: 'Redirect to frontend with GTM permission token',
+  })
+  @UseGuards(AuthGuard('google-gtm'))
+  async googleGtmAuthRedirect(@Req() req: Request, @Res() res: Response) {
+    try {
+      // req.user is already validated by Google GTM OAuth strategy
+      const oauthUser = req.user as any;
+      if (!oauthUser || !oauthUser.id) {
+        throw new UnauthorizedException('Invalid user from OAuth');
+      }
+
+      // For OAuth callbacks, we don't want to trigger 2FA again
+      // So we generate tokens directly using the validated user
+      const user = await this.usersService.findById(oauthUser.id);
+
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      // Generate JWT tokens (access and refresh) directly
+      const tokens = await this.authService.generateTokens(
+        user.id,
+        user.email,
+        user.roles,
+        false, // rememberMe
+      );
+
+      // Get Google access token for API calls
+      const googleTokens = await this.authService.getGoogleTokens(user.id);
+
+      // Generate GTM permission token for accessing GTM APIs
+      const gtmPermissionToken = await this.authService.generateGTMPermissionToken(user.id);
+
+      this.logger.log(
+        `✅ Google GTM OAuth successful for: ${user.email}`,
+      );
+
+      // Get primary provider for user info
+      const primaryProvider = await this.prisma.authProvider.findFirst({
+        where: { userId: user.id, isPrimary: true },
+        select: { provider: true },
+      });
+
+      // Simplify callback to return only essential tokens
+      // For GTM flow, permissionToken is sufficient for API access
+      const redirectUrl = this.urlConfigService.getAuthRedirectUrl(true, {
+        // Primary JWT token (with GTM permissions - can use for general auth if needed)
+        token: tokens.accessToken,
+        // GTM-specific permission token (preferred for GTM endpoints)
+        permissionToken: gtmPermissionToken.permissionToken,
+        // User info for frontend state management
+        user: JSON.stringify({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          avatar: user.avatar,
+          provider: primaryProvider?.provider || 'google',
+          isEmailVerified: user.isEmailVerified,
+          isTwoFactorEnabled: user.isTwoFactorEnabled,
+        }),
+      });
+      return res.redirect(redirectUrl);
+    } catch (error) {
+      this.logger.error('Google GTM OAuth callback error:', error.message);
+
+      const redirectUrl = this.urlConfigService.getAuthRedirectUrl(false, {
+        error: 'oauth_failed',
+        message: encodeURIComponent(error.message),
+      });
+      return res.redirect(redirectUrl);
+    }
+  }
+
+  @Public()
+  @Get('google-gtm/config')
+  @ApiOperation({
+    summary: 'Get Google GTM OAuth configuration',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Google GTM OAuth configuration',
+    schema: {
+      example: {
+        success: true,
+        message: 'Google GTM OAuth configuration retrieved',
+        data: {
+          clientId: 'google-client-id',
+          callbackUrl: 'http://localhost:5555/api/auth/google-gtm/callback',
+          authUrl: 'http://localhost:5555/api/auth/google-gtm',
+          scopes: [
+            'https://www.googleapis.com/auth/tagmanager.readonly',
+            'https://www.googleapis.com/auth/tagmanager.manage.accounts',
+            'https://www.googleapis.com/auth/tagmanager.edit.containers',
+            'https://www.googleapis.com/auth/tagmanager.edit.containerversions',
+            'https://www.googleapis.com/auth/tagmanager.publish',
+          ],
+        },
+      },
+    },
+  })
+  getGoogleGtmConfig(): ApiResponse {
+    const baseUrl = this.urlConfigService.getBaseUrl();
+
+    const config = {
+      clientId: this.configService.get('GOOGLE_GTM_CLIENT_ID'),
+      callbackUrl: this.urlConfigService.getOAuthCallbackUrl('google-gtm'),
+      authUrl: this.urlConfigService.getOAuthAuthUrl('google-gtm'),
+      scopes: [
+        'https://www.googleapis.com/auth/tagmanager.readonly',
+        'https://www.googleapis.com/auth/tagmanager.manage.accounts',
+        'https://www.googleapis.com/auth/tagmanager.edit.containers',
+        'https://www.googleapis.com/auth/tagmanager.edit.containerversions',
+        'https://www.googleapis.com/auth/tagmanager.publish',
+      ],
+    };
+
+    return this.createSuccessResponse(
+      'Google GTM OAuth configuration retrieved',
       config,
     );
   }
@@ -558,23 +701,22 @@ export class AuthController {
   async facebookAuthRedirect(@Req() req: Request, @Res() res: Response) {
     try {
       const result = await this.authService.facebookLogin(req.user);
-      const frontendUrl = this.configService.get(
-        'FRONTEND_URL',
-        'http://localhost:5173',
-      );
 
       this.logger.log(`✅ Facebook OAuth successful for: ${result.user.email}`);
 
-      const redirectUrl = `${frontendUrl}/auth/callback?success=true&token=${result.accessToken}&refresh=${result.refreshToken}&user=${encodeURIComponent(JSON.stringify(result.user))}`;
+      const redirectUrl = this.urlConfigService.getAuthRedirectUrl(true, {
+        token: result.accessToken,
+        refresh: result.refreshToken,
+        user: JSON.stringify(result.user),
+      });
       return res.redirect(redirectUrl);
     } catch (error) {
       this.logger.error('Facebook OAuth callback error:', error.message);
-      const frontendUrl = this.configService.get(
-        'FRONTEND_URL',
-        'http://localhost:5173',
-      );
 
-      const redirectUrl = `${frontendUrl}/auth/callback?error=oauth_failed&message=${encodeURIComponent(error.message)}`;
+      const redirectUrl = this.urlConfigService.getAuthRedirectUrl(false, {
+        error: 'oauth_failed',
+        message: encodeURIComponent(error.message),
+      });
       return res.redirect(redirectUrl);
     }
   }
@@ -600,15 +742,10 @@ export class AuthController {
     },
   })
   getFacebookConfig(): ApiResponse {
-    const baseUrl =
-      process.env.NODE_ENV === 'production'
-        ? 'https://your-domain.com'
-        : 'http://localhost:5555';
-
     const config = {
       appId: this.configService.get('FACEBOOK_APP_ID'),
-      callbackUrl: `${baseUrl}/api/auth/facebook/callback`,
-      authUrl: `${baseUrl}/api/auth/facebook`,
+      callbackUrl: this.urlConfigService.getOAuthCallbackUrl('facebook'),
+      authUrl: this.urlConfigService.getOAuthAuthUrl('facebook'),
     };
 
     return this.createSuccessResponse(
@@ -645,23 +782,22 @@ export class AuthController {
   async githubAuthRedirect(@Req() req: Request, @Res() res: Response) {
     try {
       const result = await this.authService.githubLogin(req.user);
-      const frontendUrl = this.configService.get(
-        'FRONTEND_URL',
-        'http://localhost:5173',
-      );
 
       this.logger.log(`✅ GitHub OAuth successful for: ${result.user.email}`);
 
-      const redirectUrl = `${frontendUrl}/auth/callback?success=true&token=${result.accessToken}&refresh=${result.refreshToken}&user=${encodeURIComponent(JSON.stringify(result.user))}`;
+      const redirectUrl = this.urlConfigService.getAuthRedirectUrl(true, {
+        token: result.accessToken,
+        refresh: result.refreshToken,
+        user: JSON.stringify(result.user),
+      });
       return res.redirect(redirectUrl);
     } catch (error) {
       this.logger.error('GitHub OAuth callback error:', error.message);
-      const frontendUrl = this.configService.get(
-        'FRONTEND_URL',
-        'http://localhost:5173',
-      );
 
-      const redirectUrl = `${frontendUrl}/auth/callback?error=oauth_failed&message=${encodeURIComponent(error.message)}`;
+      const redirectUrl = this.urlConfigService.getAuthRedirectUrl(false, {
+        error: 'oauth_failed',
+        message: encodeURIComponent(error.message),
+      });
       return res.redirect(redirectUrl);
     }
   }
@@ -687,15 +823,10 @@ export class AuthController {
     },
   })
   getGithubConfig(): ApiResponse {
-    const baseUrl =
-      process.env.NODE_ENV === 'production'
-        ? 'https://your-domain.com'
-        : 'http://localhost:5555';
-
     const config = {
       clientId: this.configService.get('GITHUB_CLIENT_ID'),
-      callbackUrl: `${baseUrl}/api/auth/github/callback`,
-      authUrl: `${baseUrl}/api/auth/github`,
+      callbackUrl: this.urlConfigService.getOAuthCallbackUrl('github'),
+      authUrl: this.urlConfigService.getOAuthAuthUrl('github'),
     };
 
     return this.createSuccessResponse(
@@ -1328,6 +1459,61 @@ export class AuthController {
           error.message,
           'PROVIDER_ERROR',
           'SET_PRIMARY_FAILED',
+        ),
+      );
+    }
+  }
+
+  // ========== GOOGLE GTM PERMISSION TOKEN ==========
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Get('google-gtm/permission-token')
+  @ApiOperation({
+    summary: 'Generate Google Tag Manager permission token',
+    description: 'Creates a short-lived permission token for accessing Google Tag Manager APIs. This token should be used in the Authorization header when calling GTM endpoints.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Permission token generated successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'GTM permission token generated successfully',
+        data: {
+          permissionToken: 'jwt.token.here',
+          expiresIn: 900000,
+          issuedAt: 1693963267000,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Google authentication required',
+    schema: {
+      example: {
+        success: false,
+        message: 'Google authentication required for GTM access',
+        error: 'UNAUTHORIZED',
+        code: 'GOOGLE_AUTH_REQUIRED',
+      },
+    },
+  })
+  async getGTMPermissionToken(@User('id') userId: string): Promise<ApiResponse> {
+    try {
+      const tokenData = await this.authService.generateGTMPermissionToken(userId);
+      return this.createSuccessResponse(
+        'GTM permission token generated successfully',
+        tokenData,
+      );
+    } catch (error) {
+      this.logger.error('GTM permission token generation failed:', error.message);
+      throw new BadRequestException(
+        this.createErrorResponse(
+          error.message,
+          'AUTH_ERROR',
+          'PERMISSION_TOKEN_FAILED',
         ),
       );
     }

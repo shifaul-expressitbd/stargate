@@ -1,9 +1,10 @@
-// src/swagger/swagger.service.ts
+ // src/swagger/swagger.service.ts
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common/interfaces';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule } from '@nestjs/swagger';
 import { createSwaggerConfig, SWAGGER_CONFIG } from './swagger.config';
+import { UrlConfigService } from '../config/url.config';
 
 @Injectable()
 export class SwaggerService implements OnModuleInit {
@@ -12,6 +13,7 @@ export class SwaggerService implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly app: INestApplication,
+    private readonly urlConfigService?: UrlConfigService,
   ) {}
 
   onModuleInit(): void {
@@ -30,10 +32,8 @@ export class SwaggerService implements OnModuleInit {
       documentBuilder.build(),
     );
 
-    const baseUrl = this.configService.get(
-      'FRONTEND_URL',
-      'http://localhost:5555',
-    );
+    const baseUrl = this.urlConfigService?.getBaseUrl() || this.configService.get('FRONTEND_URL', 'http://localhost:5555');
+    const swaggerDocsUrl = this.urlConfigService?.getSwaggerUrl() || `${baseUrl}/api/docs`;
     const googleClientId = this.configService.get('GOOGLE_CLIENT_ID');
     const githubClientId = this.configService.get('GITHUB_CLIENT_ID');
 
@@ -53,11 +53,11 @@ export class SwaggerService implements OnModuleInit {
         ],
         oauth: {
           clientId: googleClientId,
-          redirectUrl: `${baseUrl}/api/auth/google/callback`,
+          redirectUrl: this.urlConfigService?.getOAuthCallbackUrl('google') || `${baseUrl}/api/auth/google/callback`,
           usePkceWithAuthorizationCodeGrant: true,
           scopes: ['openid', 'email', 'profile'],
         },
-        oauth2RedirectUrl: `${baseUrl}/api/docs/oauth2-redirect.html`,
+        oauth2RedirectUrl: `${swaggerDocsUrl}/oauth2-redirect.html`,
         initOAuth: {
           clientId: githubClientId || googleClientId,
           usePkceWithAuthorizationCodeGrant: true,

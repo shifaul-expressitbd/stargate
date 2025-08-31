@@ -1,10 +1,10 @@
+import { HttpService } from '@nestjs/axios';
 import {
   BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { ContainerStatus } from '@prisma/client';
 import { firstValueFrom } from 'rxjs';
@@ -16,6 +16,8 @@ import {
 import { PrismaService } from '../database/prisma/prisma.service';
 import { SgtmRegionService } from '../sgtm-region/sgtm-region.service';
 import { CreateSgtmContainerDto } from './dto/sgtm-container.dto';
+import { UpdateSgtmContainerConfigDto } from './dto/update-sgtm-container-config.dto';
+import { DecodedConfig } from './interfaces/config.interface';
 
 @Injectable()
 export class SgtmContainerService {
@@ -54,13 +56,17 @@ export class SgtmContainerService {
       },
     });
 
-    this.logger.log(`Container created with ID: ${container.id}, status PENDING`);
+    this.logger.log(
+      `Container created with ID: ${container.id}, status PENDING`,
+    );
 
     try {
       // Get region config
       const regionConfig = await this.sgtmRegionService.findByKey(region);
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
-        throw new BadRequestException(`Region ${region} not configured properly`);
+        throw new BadRequestException(
+          `Region ${region} not configured properly`,
+        );
       }
 
       // Prepare base API URL
@@ -74,19 +80,25 @@ export class SgtmContainerService {
         const healthResponse = await firstValueFrom(
           this.httpService.get(healthUrl, {
             headers: {
-              'Accept': 'application/json',
+              Accept: 'application/json',
             },
-          })
+          }),
         );
 
         if (!healthResponse.data || healthResponse.data.status !== 'healthy') {
-          throw new BadRequestException(`Region ${region} API server is not healthy`);
+          throw new BadRequestException(
+            `Region ${region} API server is not healthy`,
+          );
         }
 
         this.logger.debug(`Health check passed for region ${region}`);
       } catch (healthError) {
-        this.logger.error(`Health check failed for region ${region}: ${healthError.message}`);
-        throw new BadRequestException(`Region ${region} API server is not available`);
+        this.logger.error(
+          `Health check failed for region ${region}: ${healthError.message}`,
+        );
+        throw new BadRequestException(
+          `Region ${region} API server is not available`,
+        );
       }
 
       // Prepare API URL for container creation
@@ -104,21 +116,29 @@ export class SgtmContainerService {
         json: true,
       };
 
-      this.logger.debug(`Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`);
+      this.logger.debug(
+        `Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`,
+      );
 
       // Call the API
       const response = await firstValueFrom(
-        this.httpService.post(apiUrl, { args }, {
-          headers: {
-            'x-api-key': regionConfig.apiKey,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
+        this.httpService.post(
+          apiUrl,
+          { args },
+          {
+            headers: {
+              'x-api-key': regionConfig.apiKey,
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
           },
-        })
+        ),
       );
 
       const apiData = response.data;
-      this.logger.log(`API call successful, response: ${JSON.stringify(apiData)}`);
+      this.logger.log(
+        `API call successful, response: ${JSON.stringify(apiData)}`,
+      );
 
       if (apiData.success && apiData.data) {
         // Update DB with response
@@ -154,10 +174,15 @@ export class SgtmContainerService {
           method: 'POST',
         };
       } else {
-        throw new BadRequestException('API call failed: ' + JSON.stringify(apiData));
+        throw new BadRequestException(
+          'API call failed: ' + JSON.stringify(apiData),
+        );
       }
     } catch (error) {
-      this.logger.error(`Error creating container: ${error.message}`, error.stack);
+      this.logger.error(
+        `Error creating container: ${error.message}`,
+        error.stack,
+      );
 
       // Update status to ERROR
       await this.prisma.sgtmContainer.update({
@@ -165,7 +190,9 @@ export class SgtmContainerService {
         data: { status: ContainerStatus.ERROR },
       });
 
-      throw new BadRequestException(`Container creation failed: ${error.message}`);
+      throw new BadRequestException(
+        `Container creation failed: ${error.message}`,
+      );
     }
   }
 
@@ -185,7 +212,9 @@ export class SgtmContainerService {
   }
 
   async findByIdAndUserWithSync(id: string, userId: string) {
-    this.logger.log(`Fetching and syncing container ${id} details for user ${userId}`);
+    this.logger.log(
+      `Fetching and syncing container ${id} details for user ${userId}`,
+    );
 
     const container = await this.findByIdAndUser(id, userId);
 
@@ -197,9 +226,13 @@ export class SgtmContainerService {
 
     try {
       // Get region config
-      const regionConfig = await this.sgtmRegionService.findByKey(container.region);
+      const regionConfig = await this.sgtmRegionService.findByKey(
+        container.region,
+      );
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
-        this.logger.warn(`Region ${container.region} not configured properly, returning cached data`);
+        this.logger.warn(
+          `Region ${container.region} not configured properly, returning cached data`,
+        );
         return container;
       }
 
@@ -214,19 +247,23 @@ export class SgtmContainerService {
         const healthResponse = await firstValueFrom(
           this.httpService.get(healthUrl, {
             headers: {
-              'Accept': 'application/json',
+              Accept: 'application/json',
             },
-          })
+          }),
         );
 
         if (!healthResponse.data || healthResponse.data.status !== 'healthy') {
-          this.logger.warn(`Region ${container.region} API server is not healthy, returning cached data`);
+          this.logger.warn(
+            `Region ${container.region} API server is not healthy, returning cached data`,
+          );
           return container;
         }
 
         this.logger.debug(`Health check passed for region ${container.region}`);
       } catch (healthError) {
-        this.logger.warn(`Health check failed for region ${container.region}: ${healthError.message}, returning cached data`);
+        this.logger.warn(
+          `Health check failed for region ${container.region}: ${healthError.message}, returning cached data`,
+        );
         return container;
       }
 
@@ -240,21 +277,29 @@ export class SgtmContainerService {
         json: true,
       };
 
-      this.logger.debug(`Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`);
+      this.logger.debug(
+        `Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`,
+      );
 
       // Call the API
       const response = await firstValueFrom(
-        this.httpService.post(apiUrl, { args }, {
-          headers: {
-            'x-api-key': regionConfig.apiKey,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
+        this.httpService.post(
+          apiUrl,
+          { args },
+          {
+            headers: {
+              'x-api-key': regionConfig.apiKey,
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
           },
-        })
+        ),
       );
 
       const apiData = response.data;
-      this.logger.log(`API call successful, response: ${JSON.stringify(apiData)}`);
+      this.logger.log(
+        `API call successful, response: ${JSON.stringify(apiData)}`,
+      );
 
       if (apiData.success && apiData.data) {
         // Update DB with fresh data from external service
@@ -279,7 +324,10 @@ export class SgtmContainerService {
           updateData.fullName = apiData.data.name;
         }
 
-        if (apiData.data.domain && apiData.data.domain !== container.subdomain) {
+        if (
+          apiData.data.domain &&
+          apiData.data.domain !== container.subdomain
+        ) {
           updateData.subdomain = apiData.data.domain;
         }
 
@@ -290,7 +338,9 @@ export class SgtmContainerService {
             data: updateData,
           });
 
-          this.logger.log(`Container ${id} updated with fresh data: ${JSON.stringify(updateData)}`);
+          this.logger.log(
+            `Container ${id} updated with fresh data: ${JSON.stringify(updateData)}`,
+          );
 
           // Return updated container
           return await this.prisma.sgtmContainer.findFirst({
@@ -300,10 +350,14 @@ export class SgtmContainerService {
           this.logger.debug(`No updates needed for container ${id}`);
         }
       } else {
-        this.logger.warn(`API call failed for container ${id}: ${JSON.stringify(apiData)}`);
+        this.logger.warn(
+          `API call failed for container ${id}: ${JSON.stringify(apiData)}`,
+        );
       }
     } catch (error) {
-      this.logger.warn(`Error syncing container ${id} details: ${error.message}, returning cached data`);
+      this.logger.warn(
+        `Error syncing container ${id} details: ${error.message}, returning cached data`,
+      );
     }
 
     // Return original container if sync failed or no updates needed
@@ -328,10 +382,14 @@ export class SgtmContainerService {
     });
 
     // Filter out deleted containers as they shouldn't be synced
-    const activeContainers = dbContainers.filter(c => c.status !== ContainerStatus.DELETED);
+    const activeContainers = dbContainers.filter(
+      (c) => c.status !== ContainerStatus.DELETED,
+    );
 
     if (activeContainers.length === 0) {
-      this.logger.debug(`No active containers found for user ${userId}, returning empty array`);
+      this.logger.debug(
+        `No active containers found for user ${userId}, returning empty array`,
+      );
       return [];
     }
 
@@ -342,7 +400,9 @@ export class SgtmContainerService {
 
       const regionConfig = await this.sgtmRegionService.findByKey(region);
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
-        this.logger.warn(`Region ${region} not configured properly, returning cached data`);
+        this.logger.warn(
+          `Region ${region} not configured properly, returning cached data`,
+        );
         return dbContainers;
       }
 
@@ -357,19 +417,23 @@ export class SgtmContainerService {
         const healthResponse = await firstValueFrom(
           this.httpService.get(healthUrl, {
             headers: {
-              'Accept': 'application/json',
+              Accept: 'application/json',
             },
-          })
+          }),
         );
 
         if (!healthResponse.data || healthResponse.data.status !== 'healthy') {
-          this.logger.warn(`Region ${region} API server is not healthy, returning cached data`);
+          this.logger.warn(
+            `Region ${region} API server is not healthy, returning cached data`,
+          );
           return dbContainers;
         }
 
         this.logger.debug(`Health check passed for region ${region}`);
       } catch (healthError) {
-        this.logger.warn(`Health check failed for region ${region}: ${healthError.message}, returning cached data`);
+        this.logger.warn(
+          `Health check failed for region ${region}: ${healthError.message}, returning cached data`,
+        );
         return dbContainers;
       }
 
@@ -382,21 +446,29 @@ export class SgtmContainerService {
         json: true,
       };
 
-      this.logger.debug(`Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`);
+      this.logger.debug(
+        `Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`,
+      );
 
       // Call the API
       const response = await firstValueFrom(
-        this.httpService.post(apiUrl, { args }, {
-          headers: {
-            'x-api-key': regionConfig.apiKey,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
+        this.httpService.post(
+          apiUrl,
+          { args },
+          {
+            headers: {
+              'x-api-key': regionConfig.apiKey,
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
           },
-        })
+        ),
       );
 
       const apiData = response.data;
-      this.logger.log(`API call successful, response: ${JSON.stringify(apiData)}`);
+      this.logger.log(
+        `API call successful, response: ${JSON.stringify(apiData)}`,
+      );
 
       if (apiData.success && apiData.data && Array.isArray(apiData.data)) {
         const externalContainers = apiData.data;
@@ -412,7 +484,9 @@ export class SgtmContainerService {
 
         // Update each container in database with fresh data
         for (const dbContainer of activeContainers) {
-          const externalData = externalContainerMap.get(dbContainer.containerId);
+          const externalData = externalContainerMap.get(
+            dbContainer.containerId,
+          );
 
           if (externalData) {
             const updateData: any = {};
@@ -433,10 +507,16 @@ export class SgtmContainerService {
             }
 
             // Update other fields if they've changed
-            if (externalData.name && externalData.name !== dbContainer.fullName) {
+            if (
+              externalData.name &&
+              externalData.name !== dbContainer.fullName
+            ) {
               updateData.fullName = externalData.name;
             }
-            if (externalData.domain && externalData.domain !== dbContainer.subdomain) {
+            if (
+              externalData.domain &&
+              externalData.domain !== dbContainer.subdomain
+            ) {
               updateData.subdomain = externalData.domain;
             }
 
@@ -446,7 +526,7 @@ export class SgtmContainerService {
                 this.prisma.sgtmContainer.update({
                   where: { id: dbContainer.id },
                   data: updateData,
-                })
+                }),
               );
             }
           } else {
@@ -455,7 +535,7 @@ export class SgtmContainerService {
               this.prisma.sgtmContainer.update({
                 where: { id: dbContainer.id },
                 data: { status: ContainerStatus.ERROR },
-              })
+              }),
             );
           }
         }
@@ -463,7 +543,9 @@ export class SgtmContainerService {
         // Execute all updates
         if (updatePromises.length > 0) {
           await Promise.all(updatePromises);
-          this.logger.log(`Updated ${updatePromises.length} containers for user ${userId}`);
+          this.logger.log(
+            `Updated ${updatePromises.length} containers for user ${userId}`,
+          );
         }
 
         // Return fresh data from database
@@ -472,10 +554,14 @@ export class SgtmContainerService {
           orderBy: { createdAt: 'desc' },
         });
       } else {
-        this.logger.warn(`API call failed for user ${userId}: ${JSON.stringify(apiData)}`);
+        this.logger.warn(
+          `API call failed for user ${userId}: ${JSON.stringify(apiData)}`,
+        );
       }
     } catch (error) {
-      this.logger.warn(`Error syncing containers for user ${userId}: ${error.message}, returning cached data`);
+      this.logger.warn(
+        `Error syncing containers for user ${userId}: ${error.message}, returning cached data`,
+      );
     }
 
     // Return original containers if sync failed
@@ -496,9 +582,13 @@ export class SgtmContainerService {
 
     try {
       // Get region config
-      const regionConfig = await this.sgtmRegionService.findByKey(container.region);
+      const regionConfig = await this.sgtmRegionService.findByKey(
+        container.region,
+      );
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
-        throw new BadRequestException(`Region ${container.region} not configured properly`);
+        throw new BadRequestException(
+          `Region ${container.region} not configured properly`,
+        );
       }
 
       // Prepare base API URL
@@ -512,19 +602,25 @@ export class SgtmContainerService {
         const healthResponse = await firstValueFrom(
           this.httpService.get(healthUrl, {
             headers: {
-              'Accept': 'application/json',
+              Accept: 'application/json',
             },
-          })
+          }),
         );
 
         if (!healthResponse.data || healthResponse.data.status !== 'healthy') {
-          throw new BadRequestException(`Region ${container.region} API server is not healthy`);
+          throw new BadRequestException(
+            `Region ${container.region} API server is not healthy`,
+          );
         }
 
         this.logger.debug(`Health check passed for region ${container.region}`);
       } catch (healthError) {
-        this.logger.error(`Health check failed for region ${container.region}: ${healthError.message}`);
-        throw new BadRequestException(`Region ${container.region} API server is not available`);
+        this.logger.error(
+          `Health check failed for region ${container.region}: ${healthError.message}`,
+        );
+        throw new BadRequestException(
+          `Region ${container.region} API server is not available`,
+        );
       }
 
       // Prepare API URL for container stop
@@ -536,21 +632,29 @@ export class SgtmContainerService {
         user: userId,
       };
 
-      this.logger.debug(`Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`);
+      this.logger.debug(
+        `Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`,
+      );
 
       // Call the API
       const response = await firstValueFrom(
-        this.httpService.post(apiUrl, { args }, {
-          headers: {
-            'x-api-key': regionConfig.apiKey,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
+        this.httpService.post(
+          apiUrl,
+          { args },
+          {
+            headers: {
+              'x-api-key': regionConfig.apiKey,
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
           },
-        })
+        ),
       );
 
       const apiData = response.data;
-      this.logger.log(`API call successful, response: ${JSON.stringify(apiData)}`);
+      this.logger.log(
+        `API call successful, response: ${JSON.stringify(apiData)}`,
+      );
 
       if (apiData.success) {
         // Update DB status to STOPPED
@@ -570,10 +674,15 @@ export class SgtmContainerService {
           },
         };
       } else {
-        throw new BadRequestException('API call failed: ' + JSON.stringify(apiData));
+        throw new BadRequestException(
+          'API call failed: ' + JSON.stringify(apiData),
+        );
       }
     } catch (error) {
-      this.logger.error(`Error stopping container: ${error.message}`, error.stack);
+      this.logger.error(
+        `Error stopping container: ${error.message}`,
+        error.stack,
+      );
 
       // Update status to ERROR
       await this.prisma.sgtmContainer.update({
@@ -598,9 +707,13 @@ export class SgtmContainerService {
 
     try {
       // Get region config
-      const regionConfig = await this.sgtmRegionService.findByKey(container.region);
+      const regionConfig = await this.sgtmRegionService.findByKey(
+        container.region,
+      );
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
-        throw new BadRequestException(`Region ${container.region} not configured properly`);
+        throw new BadRequestException(
+          `Region ${container.region} not configured properly`,
+        );
       }
 
       // Prepare base API URL
@@ -614,19 +727,25 @@ export class SgtmContainerService {
         const healthResponse = await firstValueFrom(
           this.httpService.get(healthUrl, {
             headers: {
-              'Accept': 'application/json',
+              Accept: 'application/json',
             },
-          })
+          }),
         );
 
         if (!healthResponse.data || healthResponse.data.status !== 'healthy') {
-          throw new BadRequestException(`Region ${container.region} API server is not healthy`);
+          throw new BadRequestException(
+            `Region ${container.region} API server is not healthy`,
+          );
         }
 
         this.logger.debug(`Health check passed for region ${container.region}`);
       } catch (healthError) {
-        this.logger.error(`Health check failed for region ${container.region}: ${healthError.message}`);
-        throw new BadRequestException(`Region ${container.region} API server is not available`);
+        this.logger.error(
+          `Health check failed for region ${container.region}: ${healthError.message}`,
+        );
+        throw new BadRequestException(
+          `Region ${container.region} API server is not available`,
+        );
       }
 
       // Prepare API URL for container restart
@@ -638,21 +757,29 @@ export class SgtmContainerService {
         user: userId,
       };
 
-      this.logger.debug(`Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`);
+      this.logger.debug(
+        `Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`,
+      );
 
       // Call the API
       const response = await firstValueFrom(
-        this.httpService.post(apiUrl, { args }, {
-          headers: {
-            'x-api-key': regionConfig.apiKey,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
+        this.httpService.post(
+          apiUrl,
+          { args },
+          {
+            headers: {
+              'x-api-key': regionConfig.apiKey,
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
           },
-        })
+        ),
       );
 
       const apiData = response.data;
-      this.logger.log(`API call successful, response: ${JSON.stringify(apiData)}`);
+      this.logger.log(
+        `API call successful, response: ${JSON.stringify(apiData)}`,
+      );
 
       if (apiData.success) {
         // Update DB status to RUNNING
@@ -672,10 +799,15 @@ export class SgtmContainerService {
           },
         };
       } else {
-        throw new BadRequestException('API call failed: ' + JSON.stringify(apiData));
+        throw new BadRequestException(
+          'API call failed: ' + JSON.stringify(apiData),
+        );
       }
     } catch (error) {
-      this.logger.error(`Error restarting container: ${error.message}`, error.stack);
+      this.logger.error(
+        `Error restarting container: ${error.message}`,
+        error.stack,
+      );
 
       // Update status to ERROR
       await this.prisma.sgtmContainer.update({
@@ -683,7 +815,9 @@ export class SgtmContainerService {
         data: { status: ContainerStatus.ERROR },
       });
 
-      throw new BadRequestException(`Container restart failed: ${error.message}`);
+      throw new BadRequestException(
+        `Container restart failed: ${error.message}`,
+      );
     }
   }
 
@@ -694,9 +828,13 @@ export class SgtmContainerService {
 
     try {
       // Get region config
-      const regionConfig = await this.sgtmRegionService.findByKey(container.region);
+      const regionConfig = await this.sgtmRegionService.findByKey(
+        container.region,
+      );
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
-        throw new BadRequestException(`Region ${container.region} not configured properly`);
+        throw new BadRequestException(
+          `Region ${container.region} not configured properly`,
+        );
       }
 
       // Prepare base API URL
@@ -710,19 +848,25 @@ export class SgtmContainerService {
         const healthResponse = await firstValueFrom(
           this.httpService.get(healthUrl, {
             headers: {
-              'Accept': 'application/json',
+              Accept: 'application/json',
             },
-          })
+          }),
         );
 
         if (!healthResponse.data || healthResponse.data.status !== 'healthy') {
-          throw new BadRequestException(`Region ${container.region} API server is not healthy`);
+          throw new BadRequestException(
+            `Region ${container.region} API server is not healthy`,
+          );
         }
 
         this.logger.debug(`Health check passed for region ${container.region}`);
       } catch (healthError) {
-        this.logger.error(`Health check failed for region ${container.region}: ${healthError.message}`);
-        throw new BadRequestException(`Region ${container.region} API server is not available`);
+        this.logger.error(
+          `Health check failed for region ${container.region}: ${healthError.message}`,
+        );
+        throw new BadRequestException(
+          `Region ${container.region} API server is not available`,
+        );
       }
 
       // Prepare API URL for container delete
@@ -734,21 +878,29 @@ export class SgtmContainerService {
         user: userId,
       };
 
-      this.logger.debug(`Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`);
+      this.logger.debug(
+        `Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`,
+      );
 
       // Call the API
       const response = await firstValueFrom(
-        this.httpService.post(apiUrl, { args }, {
-          headers: {
-            'x-api-key': regionConfig.apiKey,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
+        this.httpService.post(
+          apiUrl,
+          { args },
+          {
+            headers: {
+              'x-api-key': regionConfig.apiKey,
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
           },
-        })
+        ),
       );
 
       const apiData = response.data;
-      this.logger.log(`API call successful, response: ${JSON.stringify(apiData)}`);
+      this.logger.log(
+        `API call successful, response: ${JSON.stringify(apiData)}`,
+      );
 
       if (apiData.success) {
         // Update DB status to DELETED
@@ -768,24 +920,37 @@ export class SgtmContainerService {
           },
         };
       } else {
-        throw new BadRequestException('API call failed: ' + JSON.stringify(apiData));
+        throw new BadRequestException(
+          'API call failed: ' + JSON.stringify(apiData),
+        );
       }
     } catch (error) {
-      this.logger.error(`Error deleting container: ${error.message}`, error.stack);
-      throw new BadRequestException(`Container delete failed: ${error.message}`);
+      this.logger.error(
+        `Error deleting container: ${error.message}`,
+        error.stack,
+      );
+      throw new BadRequestException(
+        `Container delete failed: ${error.message}`,
+      );
     }
   }
 
   async hardDelete(id: string, userId: string) {
-    this.logger.log(`Attempting to hard delete container ${id} for user ${userId}`);
+    this.logger.log(
+      `Attempting to hard delete container ${id} for user ${userId}`,
+    );
 
     const container = await this.findByIdAndUser(id, userId);
 
     try {
       // Get region config
-      const regionConfig = await this.sgtmRegionService.findByKey(container.region);
+      const regionConfig = await this.sgtmRegionService.findByKey(
+        container.region,
+      );
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
-        throw new BadRequestException(`Region ${container.region} not configured properly`);
+        throw new BadRequestException(
+          `Region ${container.region} not configured properly`,
+        );
       }
 
       // Prepare base API URL
@@ -799,19 +964,25 @@ export class SgtmContainerService {
         const healthResponse = await firstValueFrom(
           this.httpService.get(healthUrl, {
             headers: {
-              'Accept': 'application/json',
+              Accept: 'application/json',
             },
-          })
+          }),
         );
 
         if (!healthResponse.data || healthResponse.data.status !== 'healthy') {
-          throw new BadRequestException(`Region ${container.region} API server is not healthy`);
+          throw new BadRequestException(
+            `Region ${container.region} API server is not healthy`,
+          );
         }
 
         this.logger.debug(`Health check passed for region ${container.region}`);
       } catch (healthError) {
-        this.logger.error(`Health check failed for region ${container.region}: ${healthError.message}`);
-        throw new BadRequestException(`Region ${container.region} API server is not available`);
+        this.logger.error(
+          `Health check failed for region ${container.region}: ${healthError.message}`,
+        );
+        throw new BadRequestException(
+          `Region ${container.region} API server is not available`,
+        );
       }
 
       // Prepare API URL for container delete
@@ -823,21 +994,29 @@ export class SgtmContainerService {
         user: userId,
       };
 
-      this.logger.debug(`Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`);
+      this.logger.debug(
+        `Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`,
+      );
 
       // Call the API
       const response = await firstValueFrom(
-        this.httpService.post(apiUrl, { args }, {
-          headers: {
-            'x-api-key': regionConfig.apiKey,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
+        this.httpService.post(
+          apiUrl,
+          { args },
+          {
+            headers: {
+              'x-api-key': regionConfig.apiKey,
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
           },
-        })
+        ),
       );
 
       const apiData = response.data;
-      this.logger.log(`API call successful, response: ${JSON.stringify(apiData)}`);
+      this.logger.log(
+        `API call successful, response: ${JSON.stringify(apiData)}`,
+      );
 
       if (apiData.success) {
         // Delete from database completely
@@ -858,7 +1037,9 @@ export class SgtmContainerService {
       } else {
         // Check if the error is "Container not found" - treat as success since it's already deleted
         if (apiData.error && apiData.error.includes('Container not found')) {
-          this.logger.log(`Container ${container.containerId} not found in external service (already deleted or never existed), proceeding with database deletion`);
+          this.logger.log(
+            `Container ${container.containerId} not found in external service (already deleted or never existed), proceeding with database deletion`,
+          );
 
           // Delete from database completely
           await this.prisma.sgtmContainer.delete({
@@ -876,15 +1057,25 @@ export class SgtmContainerService {
             },
           };
         } else {
-          throw new BadRequestException('API call failed: ' + JSON.stringify(apiData));
+          throw new BadRequestException(
+            'API call failed: ' + JSON.stringify(apiData),
+          );
         }
       }
     } catch (error) {
-      this.logger.error(`Error hard deleting container: ${error.message}`, error.stack);
+      this.logger.error(
+        `Error hard deleting container: ${error.message}`,
+        error.stack,
+      );
 
       // Check if it's a 404 "Container not found" error - in this case, delete from DB anyway
-      if (error.message && error.message.includes('Request failed with status code 404')) {
-        this.logger.log(`Container ${container.containerId} not found in external service (404), proceeding with database deletion`);
+      if (
+        error.message &&
+        error.message.includes('Request failed with status code 404')
+      ) {
+        this.logger.log(
+          `Container ${container.containerId} not found in external service (404), proceeding with database deletion`,
+        );
 
         // Delete from database completely
         await this.prisma.sgtmContainer.delete({
@@ -903,7 +1094,119 @@ export class SgtmContainerService {
         };
       }
 
-      throw new BadRequestException(`Container delete failed: ${error.message}`);
+      throw new BadRequestException(
+        `Container delete failed: ${error.message}`,
+      );
+    }
+  }
+
+  private decodeConfig(encodedConfig: string): DecodedConfig {
+    try {
+      const decodedStr = Buffer.from(encodedConfig, 'base64').toString('utf-8');
+      const params = new URLSearchParams(decodedStr);
+      const config: DecodedConfig = {};
+
+      for (const [key, value] of params.entries()) {
+        config[key] = value;
+      }
+
+      return config;
+    } catch (error) {
+      this.logger.error(`Error decoding config: ${error.message}`, error.stack);
+      throw new BadRequestException('Invalid configuration format');
+    }
+  }
+
+  private encodeConfig(config: DecodedConfig): string {
+    try {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(config)) {
+        if (value !== undefined && value !== null) {
+          params.append(key, value.toString());
+        }
+      }
+      return Buffer.from(params.toString()).toString('base64');
+    } catch (error) {
+      this.logger.error(`Error encoding config: ${error.message}`, error.stack);
+      throw new BadRequestException('Invalid configuration data');
+    }
+  }
+
+  async getConfig(id: string, userId: string) {
+    const container = await this.findByIdAndUser(id, userId);
+
+    if (!container.config) {
+      return {
+        success: true,
+        data: {
+          config: null,
+          decodedConfig: {},
+        },
+      };
+    }
+
+    try {
+      const decodedConfig = this.decodeConfig(container.config);
+
+      return {
+        success: true,
+        data: {
+          config: container.config,
+          decodedConfig,
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error getting config for container ${id}: ${error.message}`,
+        error.stack,
+      );
+      throw new BadRequestException('Invalid configuration format');
+    }
+  }
+
+  async updateConfig(
+    id: string,
+    userId: string,
+    dto: UpdateSgtmContainerConfigDto,
+  ) {
+    const container = await this.findByIdAndUser(id, userId);
+
+    try {
+      let newConfig = dto.config;
+
+      // If serverContainerUrl is provided, update it in the configuration
+      if (dto.serverContainerUrl) {
+        const currentConfig = dto.config ? this.decodeConfig(dto.config) : {};
+        currentConfig.serverContainerUrl = dto.serverContainerUrl;
+        newConfig = this.encodeConfig(currentConfig);
+      }
+
+      // Update the container configuration
+      const updatedContainer = await this.prisma.sgtmContainer.update({
+        where: { id },
+        data: { config: newConfig },
+      });
+
+      const decodedConfig = updatedContainer.config
+        ? this.decodeConfig(updatedContainer.config)
+        : {};
+
+      return {
+        success: true,
+        message: 'Configuration updated successfully',
+        data: {
+          config: updatedContainer.config,
+          decodedConfig,
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error updating config for container ${id}: ${error.message}`,
+        error.stack,
+      );
+      throw new BadRequestException(
+        'Failed to update configuration: ' + error.message,
+      );
     }
   }
 }

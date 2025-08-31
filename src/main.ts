@@ -7,6 +7,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { SwaggerService } from './swagger/swagger.service';
+import { UrlConfigService } from './config/url.config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -37,13 +38,8 @@ async function bootstrap() {
 
   // CORS
   const configService = app.get(ConfigService);
-  const corsOrigins = [
-    configService.get('FRONTEND_URL') || 'http://localhost:5173',
-    'http://localhost:4000',
-    'http://localhost:3000',
-    'http://localhost:4173',
-    'https://accounts.google.com', // Add Google OAuth domain
-  ];
+  const urlConfigService = new UrlConfigService(configService);
+  const corsOrigins = urlConfigService.getCorsOrigins();
 
   app.enableCors({
     origin: corsOrigins,

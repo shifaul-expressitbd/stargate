@@ -10,6 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { google } from 'googleapis';
 import { authenticator, totp } from 'otplib';
 import * as QRCode from 'qrcode-generator';
 import { PrismaService } from '../database/prisma/prisma.service';
@@ -21,7 +22,9 @@ import { LoginWithTwoFactorDto } from './dto/two-factor.dto';
 export interface JwtPayload {
   sub: string;
   email: string;
-  roles: string[];
+  roles?: string[]; // Optional for permission tokens
+  type?: string; // Added for permission tokens (gtm-permission)
+  permissions?: string[]; // Added for permission tokens
   iat?: number;
   exp?: number;
   impersonatedBy?: string;
@@ -73,6 +76,16 @@ export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly appName = 'StarGate';
 
+  // GTM Permission Token Configuration
+  private readonly GTM_PERMISSIONS = [
+    'gtm.accounts.read',
+    'gtm.containers.read',
+    'gtm.tags.read',
+  ] as const;
+
+  private readonly GTM_TOKEN_TYPE = 'gtm-permission';
+  private readonly GTM_TOKEN_EXPIRY = '15m';
+
   private readonly totpOptions = {
     window: 2,
     step: 30,
@@ -93,6 +106,52 @@ export class AuthService {
 
     totp.options = {
       ...this.totpOptions,
+    };
+  }
+
+  async getGoogleOAuth2Client() {
+    const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
+    const clientSecret = this.configService.get<string>('GOOGLE_CLIENT_SECRET');
+    const callbackUrl = this.configService.get<string>('GOOGLE_CALLBACK_URL');
+
+    if (!clientId || !clientSecret || !callbackUrl) {
+      throw new UnauthorizedException('Google OAuth is not configured');
+    }
+
+    const oauth2Client = new google.auth.OAuth2(
+      clientId,
+      clientSecret,
+      callbackUrl,
+    );
+
+    // Add GTM scopes
+    oauth2Client.credentials = {
+      scope:
+        'https://www.googleapis.com/auth/tagmanager.readonly https://www.googleapis.com/auth/tagmanager.edit.containers https://www.googleapis.com/auth/tagmanager.manage.accounts',
+    };
+
+    return oauth2Client;
+  }
+
+  async getGoogleTokens(userId: string) {
+    const provider = await this.prisma.authProvider.findUnique({
+      where: {
+        userId_provider: {
+          userId,
+          provider: 'GOOGLE',
+        },
+      },
+    });
+
+    if (!provider || !provider.accessToken) {
+      throw new UnauthorizedException(
+        'Google OAuth tokens not found. Please authenticate with Google first.',
+      );
+    }
+
+    // Return only the access token since the auth module handles token refresh
+    return {
+      accessToken: provider.accessToken,
     };
   }
 
@@ -423,7 +482,7 @@ export class AuthService {
       this.configService.get<string>('JWT_EXPIRES_IN') || '15m';
     const refreshTokenExpiresIn = rememberMe
       ? this.configService.get<string>('JWT_REFRESH_REMEMBER_ME_EXPIRES_IN') ||
-        '30d'
+      '30d'
       : this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
 
     const accessToken = await this.jwtService.signAsync(payload, {
@@ -983,15 +1042,15 @@ export class AuthService {
 
       throw new UnauthorizedException(
         `Invalid verification code. Server expected: ${currentCode} (${timeInfo}). ` +
-          'Please check your device time synchronization.',
+        'Please check your device time synchronization.',
       );
     }
 
     const backupCodes = skipBackup
       ? []
       : Array.from({ length: 8 }, () =>
-          Math.random().toString(36).slice(2, 10).toUpperCase(),
-        );
+        Math.random().toString(36).slice(2, 10).toUpperCase(),
+      );
 
     const hashedBackupCodes = await Promise.all(
       backupCodes.map((code) => bcrypt.hash(code, 12)),
@@ -1158,6 +1217,69 @@ export class AuthService {
     } catch (error) {
       this.logger.error(
         `Failed to change password for user ${userId}:`,
+        error.message,
+      );
+    }
+  }
+
+  async generateGTMPermissionToken(
+    userId: string,
+    context?: any,
+  ): Promise<{ permissionToken: string; expiresIn: number; issuedAt: number }> {
+    try {
+      const user = await this.usersService.findById(userId);
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      // Verify user has Google authentication configured
+      const googleProvider = await this.prisma.authProvider.findFirst({
+        where: {
+          userId: userId,
+          provider: 'GOOGLE',
+        },
+      });
+
+      if (!googleProvider?.accessToken) {
+        throw new UnauthorizedException(
+          'Google authentication required for GTM access. Please authenticate with Google first.',
+        );
+      }
+
+      // Generate permission token with GTM-specific permissions
+      // Optimize payload by only including context if it has meaningful data
+      const payload: any = {
+        sub: userId,
+        email: user.email,
+        type: this.GTM_TOKEN_TYPE,
+        permissions: this.GTM_PERMISSIONS,
+      };
+
+      // Only include context if it has meaningful data
+      if (context && Object.keys(context).length > 0) {
+        payload.context = context;
+      }
+
+      // Use standard expiresIn approach instead of manual exp to avoid conflicts
+      const permissionToken = await this.jwtService.signAsync(payload, {
+        secret: this.configService.get<string>('JWT_SECRET'),
+        expiresIn: this.GTM_TOKEN_EXPIRY,
+        noTimestamp: false, // Keep iat for additional security
+        audience: 'stargate-gtm', // Specific audience for GTM tokens
+        issuer: 'stargate-auth', // Specific issuer for clarity
+      });
+
+      // Calculate expiresIn for 15 minute token
+      const EXPIRES_IN_15_MINUTES = 15 * 60 * 1000; // 900,000 ms
+
+      return {
+        permissionToken,
+        expiresIn: EXPIRES_IN_15_MINUTES,
+        issuedAt: Date.now(),
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to generate GTM permission token for user ${userId}:`,
         error.message,
       );
       throw error;

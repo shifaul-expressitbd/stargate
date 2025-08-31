@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import { UrlConfigService } from '../config/url.config';
 
 interface EmailOptions {
   to: string;
@@ -12,21 +14,25 @@ export class MailService {
   private readonly logger = new Logger(MailService.name);
   private transporter: nodemailer.Transporter;
 
-  constructor() {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly urlConfigService?: UrlConfigService,
+  ) {
     this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT || '587'),
+      host: this.configService.get('SMTP_HOST', 'smtp.gmail.com'),
+      port: parseInt(this.configService.get('SMTP_PORT', '587')),
       secure: false,
       auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+        user: this.configService.get('SMTP_USER'),
+        pass: this.configService.get('SMTP_PASS'),
       },
     });
   }
 
   async sendVerificationEmail(email: string, token: string): Promise<void> {
-    // Use the backend API endpoint instead of frontend URL for verification
-    const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5555'}/api/auth/verify-email?token=${token}`;
+    // Use the backend API endpoint for verification
+    const verifyUrl = this.urlConfigService?.getEmailVerificationUrl(token) ||
+      `${this.configService.get('FRONTEND_URL', 'http://localhost:5555')}/api/auth/verify-email?token=${token}`;
 
     const html = `
       <!DOCTYPE html>
@@ -92,7 +98,8 @@ export class MailService {
   }
 
   async sendPasswordResetEmail(email: string, token: string): Promise<void> {
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth/reset-password?token=${token}`;
+    const resetUrl = this.urlConfigService?.getPasswordResetUrl(token) ||
+      `${this.configService.get('FRONTEND_URL', 'http://localhost:5173')}/auth/reset-password?token=${token}`;
 
     const html = `
       <!DOCTYPE html>

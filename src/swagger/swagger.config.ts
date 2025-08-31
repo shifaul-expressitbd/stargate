@@ -13,6 +13,7 @@ export const SWAGGER_CONFIG = {
     },
     { name: 'Users', description: 'User management' },
     { name: 'Impersonation', description: 'User impersonation management' },
+    { name: 'Google Tag Manager', description: 'Google Tag Manager operations' },
   ],
 };
 
@@ -65,6 +66,16 @@ export function createSwaggerConfig() {
     //   },
     //   'impersonate-refresh-token',
     // )
+    // ✅ Permission Token Scheme (for GTM access)
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Enter your **permission token** (obtained from /api/auth/google-gtm/permission-token)',
+      },
+      'permission-token',
+    )
 
     // ✅ Google OAuth
     .addOAuth2(

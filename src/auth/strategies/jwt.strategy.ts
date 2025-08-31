@@ -31,6 +31,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       id: payload.sub,
       email: payload.email,
       roles: roles,
+      type: payload.type, // Include type for permission tokens (gtm-permission)
+      permissions: payload.permissions || [], // Include permissions for permission tokens
       impersonatedBy: payload.impersonatedBy,
       impersonatorEmail: payload.impersonatorEmail,
       isImpersonation: !!payload.isImpersonation,

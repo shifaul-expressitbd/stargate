@@ -13,10 +13,12 @@ import { RolesGuard } from './common/guards/roles.guard';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { validationSchema } from './config/validation.schema';
 import { DatabaseModule } from './database/database.module';
+import { GoogleTagManagerModule } from './google-tag-manager/google-tag-manager.module';
 import { MailModule } from './mail/mail.module';
 import { SgtmContainerModule } from './sgtm-container/sgtm-container.module';
 import { SgtmRegionModule } from './sgtm-region/sgtm-region.module';
 import { UsersModule } from './users/users.module';
+import { UrlConfigService } from './config/url.config';
 
 @Module({
   imports: [
@@ -26,6 +28,12 @@ import { UsersModule } from './users/users.module';
       validationSchema,
       envFilePath: ['.env.local', '.env'],
     }),
+    {
+      module: class {},
+      providers: [UrlConfigService],
+      exports: [UrlConfigService],
+      global: true,
+    },
     // FIX: Corrected ThrottlerModule configuration - must use 'throttlers' array
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
@@ -53,6 +61,7 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     SgtmContainerModule,
     SgtmRegionModule,
+    GoogleTagManagerModule,
     MailModule,
     AdminModule,
   ],

@@ -9,7 +9,7 @@ import {
   HttpStatus,
   Param,
   Post,
-  Query,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -21,6 +21,7 @@ import {
 import { User } from '../common/decorators/user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CreateSgtmContainerDto } from './dto/sgtm-container.dto';
+import { UpdateSgtmContainerConfigDto } from './dto/update-sgtm-container-config.dto';
 import { SgtmContainerService } from './sgtm-container.service';
 
 @ApiTags('sGTM-containers')
@@ -202,7 +203,8 @@ export class SgtmContainerController {
   @Get('sync')
   @ApiOperation({
     summary: 'Get and sync all GTM containers for the current user',
-    description: 'Retrieves all containers for the user and synchronizes their details with the external docker service using docker-tagserver-list command. Updates the database with fresh information for all containers.'
+    description:
+      'Retrieves all containers for the user and synchronizes their details with the external docker service using docker-tagserver-list command. Updates the database with fresh information for all containers.',
   })
   @ApiResponse({
     status: 200,
@@ -218,9 +220,17 @@ export class SgtmContainerController {
               name: { type: 'string', example: 'gtm-unified' },
               fullName: { type: 'string', example: 'sgtm-cmepifo1-d58058f9' },
               containerId: { type: 'string', example: 'a1b2c3d4e5f6' },
-              status: { type: 'string', enum: ['PENDING', 'RUNNING', 'STOPPED', 'ERROR', 'DELETED'], example: 'RUNNING' },
+              status: {
+                type: 'string',
+                enum: ['PENDING', 'RUNNING', 'STOPPED', 'ERROR', 'DELETED'],
+                example: 'RUNNING',
+              },
               subdomain: { type: 'string', example: 'tags.bikobazaar.xyz' },
-              config: { type: 'string', example: 'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==' },
+              config: {
+                type: 'string',
+                example:
+                  'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==',
+              },
               region: { type: 'string', example: 'us-east-1' },
               userId: { type: 'string', example: 'cmepifo1d58058f9' },
               createdAt: { type: 'string', format: 'date-time' },
@@ -246,7 +256,8 @@ export class SgtmContainerController {
   @Get(':id/sync')
   @ApiOperation({
     summary: 'Get and sync a specific GTM container',
-    description: 'Retrieves a container and synchronizes its details with the external docker service using docker-tagserver-get command. Updates the database with fresh information.'
+    description:
+      'Retrieves a container and synchronizes its details with the external docker service using docker-tagserver-get command. Updates the database with fresh information.',
   })
   @ApiResponse({
     status: 200,
@@ -260,9 +271,17 @@ export class SgtmContainerController {
             name: { type: 'string', example: 'gtm-unified' },
             fullName: { type: 'string', example: 'sgtm-cmepifo1-d58058f9' },
             containerId: { type: 'string', example: 'a1b2c3d4e5f6' },
-            status: { type: 'string', enum: ['PENDING', 'RUNNING', 'STOPPED', 'ERROR', 'DELETED'], example: 'RUNNING' },
+            status: {
+              type: 'string',
+              enum: ['PENDING', 'RUNNING', 'STOPPED', 'ERROR', 'DELETED'],
+              example: 'RUNNING',
+            },
             subdomain: { type: 'string', example: 'tags.bikobazaar.xyz' },
-            config: { type: 'string', example: 'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==' },
+            config: {
+              type: 'string',
+              example:
+                'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==',
+            },
             region: { type: 'string', example: 'us-east-1' },
             userId: { type: 'string', example: 'cmepifo1d58058f9' },
             createdAt: { type: 'string', format: 'date-time' },
@@ -281,12 +300,18 @@ export class SgtmContainerController {
           type: 'object',
           properties: {
             success: { type: 'boolean', example: false },
-            message: { type: 'string', example: 'Container not found or access denied' },
+            message: {
+              type: 'string',
+              example: 'Container not found or access denied',
+            },
             error: {
               type: 'object',
               properties: {
                 code: { type: 'string', example: 'CONTAINER_NOT_FOUND' },
-                details: { type: 'string', example: 'No container found with the specified ID' },
+                details: {
+                  type: 'string',
+                  example: 'No container found with the specified ID',
+                },
               },
             },
           },
@@ -296,6 +321,106 @@ export class SgtmContainerController {
   })
   async findOneWithSync(@Param('id') id: string, @User('id') userId: string) {
     return this.sgtmContainerService.findByIdAndUserWithSync(id, userId);
+  }
+
+  @Get(':id/config')
+  @ApiOperation({
+    summary: 'Get GTM container configuration',
+    description:
+      'Retrieves the current configuration for a specific GTM container, including any custom Configuration Parameters.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Container configuration retrieved successfully',
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: {
+              type: 'object',
+              properties: {
+                config: {
+                  type: 'string',
+                  description: 'Base64 encoded configuration string',
+                  example:
+                    'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==',
+                },
+                decodedConfig: {
+                  type: 'object',
+                  description: 'Decoded configuration parameters',
+                  properties: {
+                    serverContainerUrl: {
+                      type: 'string',
+                      example: 'https://container.example.com',
+                    },
+                    // Add other config params as needed
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Container not found' })
+  async getConfig(@Param('id') id: string, @User('id') userId: string) {
+    return this.sgtmContainerService.getConfig(id, userId);
+  }
+
+  @Put(':id/config')
+  @ApiOperation({
+    summary: 'Update GTM container configuration',
+    description:
+      'Updates the configuration for a specific GTM container, including any custom Configuration Parameters.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Container configuration updated successfully',
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: true },
+            message: {
+              type: 'string',
+              example: 'Configuration updated successfully',
+            },
+            data: {
+              type: 'object',
+              properties: {
+                config: {
+                  type: 'string',
+                  example:
+                    'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==',
+                },
+                decodedConfig: {
+                  type: 'object',
+                  properties: {
+                    serverContainerUrl: {
+                      type: 'string',
+                      example: 'https://container.example.com',
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Container not found' })
+  @ApiResponse({ status: 400, description: 'Invalid configuration format' })
+  async updateConfig(
+    @Param('id') id: string,
+    @User('id') userId: string,
+    @Body() updateDto: UpdateSgtmContainerConfigDto,
+  ) {
+    return this.sgtmContainerService.updateConfig(id, userId, updateDto);
   }
 
   @Post(':id/stop')
@@ -444,7 +569,10 @@ export class SgtmContainerController {
           type: 'object',
           properties: {
             success: { type: 'boolean', example: false },
-            message: { type: 'string', example: 'Cannot restart deleted container' },
+            message: {
+              type: 'string',
+              example: 'Cannot restart deleted container',
+            },
             error: {
               type: 'object',
               properties: {
@@ -636,14 +764,18 @@ export class SgtmContainerController {
           type: 'object',
           properties: {
             success: { type: 'boolean', example: false },
-            message: { type: 'string', example: 'Container hard delete failed' },
+            message: {
+              type: 'string',
+              example: 'Container hard delete failed',
+            },
             error: {
               type: 'object',
               properties: {
                 code: { type: 'string', example: 'HARD_DELETE_FAILED' },
                 details: {
                   type: 'string',
-                  example: 'Failed to hard delete container from external service',
+                  example:
+                    'Failed to hard delete container from external service',
                 },
               },
             },
