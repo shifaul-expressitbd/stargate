@@ -415,7 +415,25 @@ export class AuthController {
             email: 'user@example.com',
             isEmailVerified: true,
           },
-          redirectUrl: 'https://frontend.com/auth/success',
+          alreadyVerified: false,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Email already verified',
+    schema: {
+      example: {
+        success: true,
+        message: 'Email is already verified',
+        data: {
+          user: {
+            id: 'uuid',
+            email: 'user@example.com',
+            isEmailVerified: true,
+          },
+          alreadyVerified: true,
         },
       },
     },
@@ -438,43 +456,59 @@ export class AuthController {
         throw new BadRequestException('Token is required');
       }
 
-      const user = await this.usersService.findByVerificationToken(token);
-      if (!user) {
+      // Use the new enhanced token verification method
+      const { email, user, tokenValid } =
+        await this.usersService.verifyEmailToken(token);
+
+      if (!tokenValid) {
         throw new BadRequestException('Invalid or expired verification token');
       }
 
-      const updatedUser = await this.usersService.markEmailAsVerified(user.id);
-      this.logger.log(`✅ Email verified for user: ${updatedUser.email}`);
+      // If token is valid but no user found (possible with old tokens), reject
+      if (!user) {
+        throw new BadRequestException('User not found or token has expired');
+      }
 
-      const redirectUrl = this.urlConfigService.getAuthRedirectUrl(true, {
-        success: 'true',
-      });
+      const { user: updatedUser, wasAlreadyVerified } =
+        await this.usersService.markEmailAsVerified(user.id);
 
-      const response = this.createSuccessResponse(
-        'Email verified successfully',
-        {
-          user: {
-            id: updatedUser.id,
-            email: updatedUser.email,
-            isEmailVerified: updatedUser.isEmailVerified,
+      if (wasAlreadyVerified) {
+        this.logger.log(
+          `📧 Email already verified for user: ${updatedUser.email}`,
+        );
+
+        const response = this.createSuccessResponse(
+          'Email is already verified',
+          {
+            user: {
+              id: updatedUser.id,
+              email: updatedUser.email,
+              isEmailVerified: updatedUser.isEmailVerified,
+            },
+            alreadyVerified: true,
           },
-          redirectUrl,
-        },
-      );
+        );
 
-      const accept = res.req.headers.accept || '';
-      if (accept.includes('application/json')) {
         return res.json(response);
       } else {
-        return res.redirect(redirectUrl);
+        this.logger.log(`✅ Email verified for user: ${updatedUser.email}`);
+
+        const response = this.createSuccessResponse(
+          'Email verified successfully',
+          {
+            user: {
+              id: updatedUser.id,
+              email: updatedUser.email,
+              isEmailVerified: updatedUser.isEmailVerified,
+            },
+            alreadyVerified: false,
+          },
+        );
+
+        return res.json(response);
       }
     } catch (error) {
       this.logger.error('Email verification error:', error.message);
-
-      const errorRedirectUrl = this.urlConfigService.getAuthRedirectUrl(false, {
-        error: 'true',
-        message: encodeURIComponent(error.message),
-      });
 
       const errorResponse = this.createErrorResponse(
         error.message,
@@ -482,12 +516,7 @@ export class AuthController {
         'INVALID_TOKEN',
       );
 
-      const accept = res.req.headers.accept || '';
-      if (accept.includes('application/json')) {
-        return res.status(400).json(errorResponse);
-      } else {
-        return res.redirect(errorRedirectUrl);
-      }
+      return res.status(400).json(errorResponse);
     }
   }
 

@@ -241,9 +241,9 @@ export class AuthService {
       }
 
       const hashedPassword = await bcrypt.hash(registerDto.password, 12);
-      const emailVerificationToken = require('crypto')
-        .randomBytes(32)
-        .toString('hex');
+      const emailVerificationToken = await this.generateEmailVerificationToken(
+        registerDto.email.toLowerCase().trim(),
+      );
 
       const user = await this.usersService.create({
         email: registerDto.email.toLowerCase().trim(),
@@ -482,7 +482,7 @@ export class AuthService {
       this.configService.get<string>('JWT_EXPIRES_IN') || '15m';
     const refreshTokenExpiresIn = rememberMe
       ? this.configService.get<string>('JWT_REFRESH_REMEMBER_ME_EXPIRES_IN') ||
-      '30d'
+        '30d'
       : this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
 
     const accessToken = await this.jwtService.signAsync(payload, {
@@ -1042,15 +1042,15 @@ export class AuthService {
 
       throw new UnauthorizedException(
         `Invalid verification code. Server expected: ${currentCode} (${timeInfo}). ` +
-        'Please check your device time synchronization.',
+          'Please check your device time synchronization.',
       );
     }
 
     const backupCodes = skipBackup
       ? []
       : Array.from({ length: 8 }, () =>
-        Math.random().toString(36).slice(2, 10).toUpperCase(),
-      );
+          Math.random().toString(36).slice(2, 10).toUpperCase(),
+        );
 
     const hashedBackupCodes = await Promise.all(
       backupCodes.map((code) => bcrypt.hash(code, 12)),
@@ -1218,6 +1218,36 @@ export class AuthService {
       this.logger.error(
         `Failed to change password for user ${userId}:`,
         error.message,
+      );
+    }
+  }
+
+  async generateEmailVerificationToken(email: string): Promise<string> {
+    try {
+      const payload: JwtPayload = {
+        email,
+        type: 'verification',
+        sub: email, // Use email as subject for verification
+      };
+
+      const jwtSecret = this.configService.get<string>('JWT_SECRET');
+      if (!jwtSecret) throw new Error('JWT_SECRET missing');
+
+      // Use 24 hours expiry for email verification
+      const verificationToken = await this.jwtService.signAsync(payload, {
+        secret: jwtSecret,
+        expiresIn: '24h', // Email verification links are typically valid for 24 hours
+        noTimestamp: false,
+      });
+
+      return verificationToken;
+    } catch (error) {
+      this.logger.error(
+        'Failed to generate email verification token:',
+        error.message,
+      );
+      throw new InternalServerErrorException(
+        'Failed to generate verification token',
       );
     }
   }

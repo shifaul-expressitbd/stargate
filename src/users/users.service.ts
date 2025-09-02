@@ -1,10 +1,31 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma/prisma.service';
 
+// Define JwtPayload interface locally to avoid circular dependencies
+interface JwtPayload {
+  sub: string;
+  email: string;
+  roles?: string[];
+  type?: string;
+  permissions?: string[];
+  iat?: number;
+  exp?: number;
+  impersonatedBy?: string;
+  rememberMe?: boolean;
+  impersonatorEmail?: string;
+  isImpersonation?: boolean;
+}
+
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private jwtService: JwtService,
+    private configService: ConfigService,
+  ) {}
 
   async findByEmail(email: string) {
     return this.prisma.user.findUnique({
@@ -28,8 +49,24 @@ export class UsersService {
     });
   }
 
-  async markEmailAsVerified(userId: string) {
-    return this.prisma.user.update({
+  async markEmailAsVerified(
+    userId: string,
+  ): Promise<{ user: any; wasAlreadyVerified: boolean }> {
+    // First, check if the user is already verified
+    const user = await this.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const wasAlreadyVerified = user.isEmailVerified;
+
+    if (wasAlreadyVerified) {
+      // Return user without updating the database
+      return { user, wasAlreadyVerified: true };
+    }
+
+    // Update user if not already verified
+    const updatedUser = await this.prisma.user.update({
       where: { id: userId },
       data: {
         isEmailVerified: true,
@@ -37,6 +74,8 @@ export class UsersService {
         verificationToken: null,
       },
     });
+
+    return { user: updatedUser, wasAlreadyVerified: false };
   }
 
   async create(data: {
@@ -134,6 +173,59 @@ export class UsersService {
       where: { id: userId },
       data: { password },
     });
+  }
+
+  // Enhanced verification token logic for JWT-based tokens
+  async verifyEmailToken(
+    token: string,
+  ): Promise<{ email: string; user?: any; tokenValid: boolean }> {
+    try {
+      // First try to decode as JWT token (new format)
+      const jwtSecret = this.configService.get<string>('JWT_SECRET');
+      if (!jwtSecret) {
+        throw new Error('JWT_SECRET missing');
+      }
+
+      const decoded = (await this.jwtService.verifyAsync(token, {
+        secret: jwtSecret,
+      })) as JwtPayload;
+
+      // Check if this is a verification token with email
+      if (decoded.email && decoded.type === 'verification') {
+        // Find user by email to check verification status
+        const user = await this.findByEmail(decoded.email);
+
+        return {
+          email: decoded.email,
+          user,
+          tokenValid: true,
+        };
+      }
+
+      throw new Error('Invalid token format');
+    } catch (jwtError) {
+      // If JWT verification failed, try legacy database lookup
+      console.log(
+        'JWT verification failed, trying legacy token lookup:',
+        jwtError.message,
+      );
+
+      const user = await this.prisma.user.findFirst({
+        where: {
+          verificationToken: token,
+        },
+      });
+
+      if (user) {
+        return {
+          email: user.email,
+          user,
+          tokenValid: true,
+        };
+      }
+
+      return { email: '', tokenValid: false };
+    }
   }
 
   // API Key support for bash-runner compatibility
