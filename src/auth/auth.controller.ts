@@ -28,11 +28,11 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../database/prisma/prisma.service';
-import { UrlConfigService } from '../config/url.config';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { Public } from '../common/decorators/public.decorator';
 import { User } from '../common/decorators/user.decorator';
+import { UrlConfigService } from '../config/url.config';
+import { PrismaService } from '../database/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
 import { LoginWithBackupCodeDto } from './dto/backup-code.dto';
@@ -94,7 +94,32 @@ export class AuthController {
   @HttpCode(HttpStatus.CREATED)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Register a new user with email and password' })
-  @ApiBody({ type: RegisterDto })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['email', 'name', 'password'],
+      properties: {
+        email: {
+          type: 'string',
+          format: 'email',
+          example: 'user@example.com',
+        },
+        name: {
+          type: 'string',
+          example: 'John Doe',
+        },
+        password: {
+          type: 'string',
+          minLength: 8,
+          example: 'password123',
+        },
+        avatar: {
+          type: 'string',
+          example: 'https://example.com/avatar.jpg',
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 201,
     description: 'User registered successfully',
@@ -186,7 +211,28 @@ export class AuthController {
   @UseGuards(AuthGuard('local'))
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Login with email and password' })
-  @ApiBody({ type: LoginDto })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['email', 'password'],
+      properties: {
+        email: {
+          type: 'string',
+          format: 'email',
+          example: 'user@example.com',
+        },
+        password: {
+          type: 'string',
+          example: 'password123',
+        },
+        rememberMe: {
+          type: 'boolean',
+          example: true,
+          description: 'Extend refresh token expiry if true',
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 200,
     description: 'Login successful',
@@ -582,11 +628,10 @@ export class AuthController {
       const googleTokens = await this.authService.getGoogleTokens(user.id);
 
       // Generate GTM permission token for accessing GTM APIs
-      const gtmPermissionToken = await this.authService.generateGTMPermissionToken(user.id);
+      const gtmPermissionToken =
+        await this.authService.generateGTMPermissionToken(user.id);
 
-      this.logger.log(
-        `✅ Google GTM OAuth successful for: ${user.email}`,
-      );
+      this.logger.log(`✅ Google GTM OAuth successful for: ${user.email}`);
 
       // Get primary provider for user info
       const primaryProvider = await this.prisma.authProvider.findFirst({
@@ -1189,7 +1234,33 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Login using a backup code (for 2FA)' })
-  @ApiBody({ type: LoginWithBackupCodeDto })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['email', 'backupCode', 'tempToken'],
+      properties: {
+        email: {
+          type: 'string',
+          format: 'email',
+          example: 'user@example.com',
+          description: 'User email address',
+        },
+        backupCode: {
+          type: 'string',
+          example: 'ABCD1234',
+          description: 'Backup code (8 characters alphanumeric)',
+          minLength: 8,
+          maxLength: 8,
+          pattern: '^[A-Z0-9]{8}$',
+        },
+        tempToken: {
+          type: 'string',
+          example: 'eyJhbGciOi...',
+          description: 'Temporary token from /login',
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 200,
     description: 'Login successful with backup code',
@@ -1471,7 +1542,8 @@ export class AuthController {
   @Get('google-gtm/permission-token')
   @ApiOperation({
     summary: 'Generate Google Tag Manager permission token',
-    description: 'Creates a short-lived permission token for accessing Google Tag Manager APIs. This token should be used in the Authorization header when calling GTM endpoints.',
+    description:
+      'Creates a short-lived permission token for accessing Google Tag Manager APIs. This token should be used in the Authorization header when calling GTM endpoints.',
   })
   @ApiResponse({
     status: 200,
@@ -1500,15 +1572,21 @@ export class AuthController {
       },
     },
   })
-  async getGTMPermissionToken(@User('id') userId: string): Promise<ApiResponse> {
+  async getGTMPermissionToken(
+    @User('id') userId: string,
+  ): Promise<ApiResponse> {
     try {
-      const tokenData = await this.authService.generateGTMPermissionToken(userId);
+      const tokenData =
+        await this.authService.generateGTMPermissionToken(userId);
       return this.createSuccessResponse(
         'GTM permission token generated successfully',
         tokenData,
       );
     } catch (error) {
-      this.logger.error('GTM permission token generation failed:', error.message);
+      this.logger.error(
+        'GTM permission token generation failed:',
+        error.message,
+      );
       throw new BadRequestException(
         this.createErrorResponse(
           error.message,

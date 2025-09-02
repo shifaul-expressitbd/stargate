@@ -59,7 +59,31 @@ export class AdminController {
     description:
       'Retrieves target user data without generating tokens. Useful for verifying the correct user before impersonation.',
   })
-  @ApiBody({ type: ImpersonateDto })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        email: {
+          type: 'string',
+          format: 'email',
+          example: 'user@example.com',
+          description:
+            'Email of the user to impersonate (alternative to userId)',
+        },
+        userId: {
+          type: 'string',
+          format: 'uuid',
+          example: 'c3a9b8e1-2c4d-4f5b-a6d8-1e2f3c4d5e6f',
+          description: 'ID of the user to impersonate (alternative to email)',
+        },
+        reason: {
+          type: 'string',
+          example: 'Support ticket #12345 - User reported login issues',
+          description: 'Reason for impersonation (for audit logs)',
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 200,
     description: 'User data retrieved successfully',
@@ -133,7 +157,31 @@ export class AdminController {
     description:
       'Generates JWT tokens for impersonating another user. The generated tokens can be used to make API requests as the target user.',
   })
-  @ApiBody({ type: ImpersonateDto })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        email: {
+          type: 'string',
+          format: 'email',
+          example: 'user@example.com',
+          description:
+            'Email of the user to impersonate (alternative to userId)',
+        },
+        userId: {
+          type: 'string',
+          format: 'uuid',
+          example: 'c3a9b8e1-2c4d-4f5b-a6d8-1e2f3c4d5e6f',
+          description: 'ID of the user to impersonate (alternative to email)',
+        },
+        reason: {
+          type: 'string',
+          example: 'Support ticket #12345 - User reported login issues',
+          description: 'Reason for impersonation (for audit logs)',
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 200,
     description: 'Impersonation tokens generated successfully',
@@ -256,7 +304,20 @@ export class AdminController {
 
   @Post('impersonate/stop')
   @ApiOperation({ summary: 'Stop impersonating a user (end session)' })
-  @ApiBody({ type: StopImpersonationDto })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['targetUserId'],
+      properties: {
+        targetUserId: {
+          type: 'string',
+          format: 'uuid',
+          example: 'c3a9b8e1-2c4d-4f5b-a6d8-1e2f3c4d5e6f',
+          description: 'ID of the user to stop impersonating',
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 200,
     description: 'Impersonation stopped successfully',
