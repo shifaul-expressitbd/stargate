@@ -13,8 +13,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
-import { ImpersonationGuard } from 'src/common/guards/impersonation.guard';
 import { User } from '../common/decorators/user.decorator';
+import { ImpersonationGuard } from '../common/guards/impersonation.guard';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { UsersService } from './users.service';
 
