@@ -31,7 +31,8 @@ export class MailService {
 
   async sendVerificationEmail(email: string, token: string): Promise<void> {
     // Use the backend API endpoint for verification
-    const verifyUrl = this.urlConfigService?.getEmailVerificationUrl(token) ||
+    const verifyUrl =
+      this.urlConfigService?.getEmailVerificationUrl(token) ||
       `${this.configService.get('FRONTEND_URL', 'http://localhost:5555')}/api/auth/verify-email?token=${token}`;
 
     const html = `
@@ -98,8 +99,9 @@ export class MailService {
   }
 
   async sendPasswordResetEmail(email: string, token: string): Promise<void> {
-    const resetUrl = this.urlConfigService?.getPasswordResetUrl(token) ||
-      `${this.configService.get('FRONTEND_URL', 'http://localhost:5173')}/auth/reset-password?token=${token}`;
+    const resetUrl =
+      this.urlConfigService?.getPasswordResetUrl(token) ||
+      `${this.configService.get('FRONTEND_URL', 'http://localhost:5173')}/reset-password?token=${token}`;
 
     const html = `
       <!DOCTYPE html>

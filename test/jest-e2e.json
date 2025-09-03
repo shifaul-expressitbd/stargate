@@ -5,5 +5,21 @@
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
-  }
+  },
+  "reporters": [
+    "default",
+    [
+      "jest-html-reporter",
+      {
+        "pageTitle": "Stargate NestJS Test Report",
+        "outputPath": "test/reports/test-report.html",
+        "includeFailureMsg": true,
+        "includeSuiteFailure": true,
+        "includeConsoleLog": true,
+        "includeDumpedErrorLog": true,
+        "executionTimeWarningThreshold": 5000,
+        "dateFormat": "yyyy-MM-dd HH:mm:ss"
+      }
+    ]
+  ]
 }

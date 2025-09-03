@@ -1,7 +1,8 @@
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
-import { UsersService } from './users.service';
 import { PrismaService } from '../database/prisma/prisma.service';
-import { NotFoundException } from '@nestjs/common';
+import { UsersService } from './users.service';
 
 const mockPrismaService = {
   user: {
@@ -14,6 +15,15 @@ const mockPrismaService = {
   },
 };
 
+const mockJwtService = {
+  verifyAsync: jest.fn(),
+  signAsync: jest.fn(),
+};
+
+const mockConfigService = {
+  get: jest.fn().mockReturnValue('test-jwt-secret'),
+};
+
 describe('UsersService', () => {
   let service: UsersService;
   let prismaService: PrismaService;
@@ -23,6 +33,8 @@ describe('UsersService', () => {
       providers: [
         UsersService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: JwtService, useValue: mockJwtService },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 
@@ -93,11 +105,12 @@ describe('UsersService', () => {
         verificationToken: null,
       };
 
+      mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
       mockPrismaService.user.update.mockResolvedValue(updatedUser);
 
       const result = await service.markEmailAsVerified('1');
 
-      expect(result.isEmailVerified).toBe(true);
+      expect(result.user.isEmailVerified).toBe(true);
       expect(mockPrismaService.user.update).toHaveBeenCalledWith({
         where: { id: '1' },
         data: {

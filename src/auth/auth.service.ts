@@ -12,7 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { google } from 'googleapis';
 import { authenticator, totp } from 'otplib';
-import * as QRCode from 'qrcode-generator';
+import QRCode from 'qrcode-generator';
 import { PrismaService } from '../database/prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
@@ -160,25 +160,44 @@ export class AuthService {
     const jwtRefreshSecret =
       this.configService.get<string>('JWT_REFRESH_SECRET');
 
+    // Enhanced logging for debugging test issues
+    this.logger.log(
+      `🔐 [AuthService] Validating JWT secrets at ${new Date().toISOString()}`,
+    );
+    this.logger.log(
+      `🔐 [AuthService] JWT_SECRET length: ${jwtSecret?.length || 'undefined'}`,
+    );
+    this.logger.log(
+      `🔐 [AuthService] JWT_REFRESH_SECRET length: ${jwtRefreshSecret?.length || 'undefined'}`,
+    );
+
     console.log('JWT Secrets Debug:', {
       jwtSecret: jwtSecret ? `${jwtSecret.substring(0, 10)}...` : 'NOT FOUND',
       jwtRefreshSecret: jwtRefreshSecret
         ? `${jwtRefreshSecret.substring(0, 10)}...`
         : 'NOT FOUND',
+      timestamp: new Date().toISOString(),
+      testIdentifier: process.env.TEST_NAME || 'unknown',
     });
 
     if (!jwtSecret || jwtSecret.length < 32) {
+      this.logger.error(
+        `❌ [AuthService] JWT_SECRET validation failed: ${!jwtSecret ? 'NOT FOUND' : `too short (${jwtSecret.length} chars)`}`,
+      );
       throw new Error(
-        'JWT_SECRET is missing or too short (minimum 32 characters)',
+        `JWT_SECRET is missing or too short (minimum 32 characters). Found length: ${jwtSecret?.length || 'undefined'}`,
       );
     }
     if (!jwtRefreshSecret || jwtRefreshSecret.length < 32) {
+      this.logger.error(
+        `❌ [AuthService] JWT_REFRESH_SECRET validation failed: ${!jwtRefreshSecret ? 'NOT FOUND' : `too short (${jwtRefreshSecret.length} chars)`}`,
+      );
       throw new Error(
-        'JWT_REFRESH_SECRET is missing or too short (minimum 32 characters)',
+        `JWT_REFRESH_SECRET is missing or too short (minimum 32 characters). Found length: ${jwtRefreshSecret?.length || 'undefined'}`,
       );
     }
 
-    this.logger.log('✅ JWT secrets validated successfully');
+    this.logger.log('✅ [AuthService] JWT secrets validated successfully');
   }
 
   async validateUser(email: string, password: string): Promise<any> {
@@ -866,32 +885,49 @@ export class AuthService {
       const user = await this.usersService.findById(userId);
       if (!user) throw new BadRequestException('User not found');
 
+      this.logger.log(`Generating 2FA secret for user: ${user.email}`);
+
       const secret = authenticator.generateSecret();
       const serviceName = this.appName.replace(/\s+/g, '');
       const accountName = user.email;
 
       const otpAuthUrl = authenticator.keyuri(accountName, serviceName, secret);
 
-      const qr = QRCode.default(0, 'L');
-      qr.addData(otpAuthUrl);
-      qr.make();
-      const qrCodeUrl = qr.createDataURL(4);
+      // Handle QR code generation with proper error checking
+      try {
+        const qr = QRCode(0, 'L');
+        qr.addData(otpAuthUrl);
+        qr.make();
+        const qrCodeUrl = qr.createDataURL(4);
 
-      await this.usersService.update(userId, {
-        twoFactorSecret: secret,
-      });
+        await this.usersService.update(userId, {
+          twoFactorSecret: secret,
+        });
 
-      const currentCode = totp.generate(secret);
+        const currentCode = totp.generate(secret);
 
-      return {
-        secret,
-        qrCodeUrl,
-        manualEntryKey: secret,
-        otpAuthUrl,
-        currentCode:
-          process.env.NODE_ENV === 'development' ? currentCode : undefined,
-      };
+        const result = {
+          secret,
+          qrCodeUrl,
+          manualEntryKey: secret,
+          otpAuthUrl,
+          currentCode:
+            process.env.NODE_ENV === 'development' ? currentCode : undefined,
+        };
+
+        this.logger.log(
+          `✅ 2FA secret generated successfully for user: ${user.email}`,
+        );
+        return result;
+      } catch (qrError) {
+        this.logger.error(
+          `Failed to generate QR code for user ${userId}:`,
+          qrError.message,
+        );
+        throw new BadRequestException('Failed to generate QR code');
+      }
     } catch (error) {
+      if (error instanceof BadRequestException) throw error;
       this.logger.error(
         `Failed to generate 2FA secret for user ${userId}:`,
         error.message,
@@ -1219,6 +1255,7 @@ export class AuthService {
         `Failed to change password for user ${userId}:`,
         error.message,
       );
+      throw error;
     }
   }
 
@@ -1248,6 +1285,49 @@ export class AuthService {
       );
       throw new InternalServerErrorException(
         'Failed to generate verification token',
+      );
+    }
+  }
+
+  async resendVerificationEmail(email: string): Promise<void> {
+    try {
+      // Find user by email
+      const user = await this.usersService.findByEmail(email);
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      // Check if email is already verified
+      if (user.isEmailVerified) {
+        throw new BadRequestException('Email is already verified');
+      }
+
+      // Generate new verification token (always new token as required)
+      const emailVerificationToken =
+        await this.generateEmailVerificationToken(email);
+
+      // Update user's verification token (for backward compatibility)
+      await this.usersService.update(user.id, {
+        verificationToken: emailVerificationToken,
+      });
+
+      // Send verification email with new token
+      this.sendVerificationEmailAsync(email, emailVerificationToken);
+
+      this.logger.log(
+        `✅ Verification email resent to: ${email} with new token`,
+      );
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+
+      this.logger.error('Failed to resend verification email:', error.message);
+      throw new InternalServerErrorException(
+        'Failed to resend verification email',
       );
     }
   }

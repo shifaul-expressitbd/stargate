@@ -15,7 +15,10 @@ export class UrlConfigService {
 
     if (nodeEnv === 'production') {
       // Use environment variable or fallback to your production domain
-      return this.configService.get<string>('BASE_URL', 'https://your-domain.com');
+      return this.configService.get<string>(
+        'BASE_URL',
+        'https://your-domain.com',
+      );
     }
 
     // Development defaults
@@ -36,7 +39,10 @@ export class UrlConfigService {
     const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
 
     if (nodeEnv === 'production') {
-      return this.configService.get<string>('FRONTEND_URL_PROD', 'https://your-frontend.com');
+      return this.configService.get<string>(
+        'FRONTEND_URL_PROD',
+        'https://your-frontend.com',
+      );
     }
 
     return 'http://localhost:5173'; // Development default
@@ -56,16 +62,13 @@ export class UrlConfigService {
     const corsEnv = this.configService.get<string>('CORS_ORIGIN');
 
     if (corsEnv) {
-      return corsEnv.split(',').map(origin => origin.trim());
+      return corsEnv.split(',').map((origin) => origin.trim());
     }
 
     const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
 
     if (nodeEnv === 'production') {
-      return [
-        this.getFrontendUrl(),
-        this.getBaseUrl()
-      ];
+      return [this.getFrontendUrl(), this.getBaseUrl()];
     }
 
     // Development origins
@@ -74,7 +77,7 @@ export class UrlConfigService {
       'http://localhost:4000', // Bash runner API
       'http://localhost:3000', // Alternative frontend
       'http://localhost:4173', // Vite preview
-      'https://accounts.google.com' // Google OAuth
+      'https://accounts.google.com', // Google OAuth
     ];
   }
 
@@ -117,7 +120,7 @@ export class UrlConfigService {
    */
   getPasswordResetUrl(token: string): string {
     const frontendUrl = this.getFrontendUrl();
-    return `${frontendUrl}/auth/reset-password?token=${token}`;
+    return `${frontendUrl}/reset-password?token=${token}`;
   }
 
   /**
@@ -131,7 +134,10 @@ export class UrlConfigService {
   /**
    * Generate auth redirect URL
    */
-  getAuthRedirectUrl(success: boolean, params: Record<string, any> = {}): string {
+  getAuthRedirectUrl(
+    success: boolean,
+    params: Record<string, any> = {},
+  ): string {
     const frontendUrl = this.getFrontendUrl();
     const basePath = `${frontendUrl}/auth/callback`;
 

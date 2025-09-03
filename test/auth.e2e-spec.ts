@@ -1,9 +1,9 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import * as bcrypt from 'bcryptjs';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma/prisma.service';
-import * as bcrypt from 'bcryptjs';
 
 describe('AuthController (e2e)', () => {
   let app: INestApplication;
@@ -56,7 +56,6 @@ describe('AuthController (e2e)', () => {
           email: 'test@example.com',
           name: 'Test User',
           password: hashedPassword,
-          provider: 'local',
         },
       });
 
@@ -84,7 +83,6 @@ describe('AuthController (e2e)', () => {
           email: 'test@example.com',
           name: 'Test User',
           password: hashedPassword,
-          provider: 'local',
           isEmailVerified: true,
         },
       });
@@ -112,7 +110,6 @@ describe('AuthController (e2e)', () => {
           email: 'test@example.com',
           name: 'Test User',
           password: hashedPassword,
-          provider: 'local',
           isEmailVerified: true,
         },
       });

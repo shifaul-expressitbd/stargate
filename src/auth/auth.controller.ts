@@ -39,6 +39,7 @@ import { LoginWithBackupCodeDto } from './dto/backup-code.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResendVerificationEmailDto } from './dto/resend-verification-email.dto';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/reset-password.dto';
 import {
   EnableTwoFactorDto,
@@ -517,6 +518,99 @@ export class AuthController {
       );
 
       return res.status(400).json(errorResponse);
+    }
+  }
+
+  // ========== RESEND VERIFICATION EMAIL ==========
+  @Public()
+  @Post('resend-verification-email')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 86400000 } })
+  @ApiOperation({ summary: 'Resend verification email with new token' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['email'],
+      properties: {
+        email: {
+          type: 'string',
+          format: 'email',
+          example: 'user@example.com',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification email sent successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Verification email sent successfully',
+        data: null,
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request - Email already verified or invalid email',
+    schema: {
+      example: {
+        success: false,
+        message: 'Email is already verified',
+        error: 'BAD_REQUEST',
+        code: 'EMAIL_ALREADY_VERIFIED',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User not found',
+    schema: {
+      example: {
+        success: false,
+        message: 'User not found',
+        error: 'NOT_FOUND',
+        code: 'USER_NOT_FOUND',
+      },
+    },
+  })
+  async resendVerificationEmail(
+    @Body() dto: ResendVerificationEmailDto,
+  ): Promise<ApiResponse> {
+    try {
+      await this.authService.resendVerificationEmail(dto.email);
+      return this.createSuccessResponse('Verification email sent successfully');
+    } catch (error) {
+      this.logger.error('Resend verification email failed:', error.message);
+
+      if (error instanceof NotFoundException) {
+        throw new NotFoundException(
+          this.createErrorResponse(
+            error.message,
+            'NOT_FOUND',
+            'USER_NOT_FOUND',
+          ),
+        );
+      }
+
+      if (error instanceof BadRequestException) {
+        throw new BadRequestException(
+          this.createErrorResponse(
+            error.message,
+            'BAD_REQUEST',
+            'EMAIL_ALREADY_VERIFIED',
+          ),
+        );
+      }
+
+      throw new BadRequestException(
+        this.createErrorResponse(
+          'Failed to send verification email',
+          'SERVER_ERROR',
+          'RESEND_FAILED',
+        ),
+      );
     }
   }
 
@@ -1224,6 +1318,26 @@ export class AuthController {
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using token' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['token', 'password'],
+      properties: {
+        token: {
+          type: 'string',
+          example: 'eyJhbGciOi...',
+          description: 'Password reset token',
+        },
+        password: {
+          type: 'string',
+          example: 'newpassword123',
+          description: 'New password',
+          minLength: 6,
+          maxLength: 100,
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 200,
     description: 'Password reset successful',

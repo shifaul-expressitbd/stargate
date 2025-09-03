@@ -1,0 +1,277 @@
+<html><head><meta charset="utf-8"/><title>Test Report</title><style type="text/css">:root {
+  --text-primary: #111;
+  --text-secondary: #4f4f4f;
+  --success: #006633;
+  --success-bright: #80ffbf;
+  --danger: #cc071e;
+  --danger-bright: #fbdfe0;
+  --warning: #995c00;
+  --warning-bright: #ffeea8;
+  --panel: #eee;
+  --border: #949494;
+  --disabled: #6b6b6b;
+}
+
+html,
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 16px;
+  margin: 0;
+  padding: 0;
+  color: var(--text-primary);
+}
+body {
+  padding: 2rem 1rem;
+}
+.jesthtml-content {
+  margin: 0 auto;
+  max-width: 70rem;
+}
+header {
+  display: flex;
+  align-items: center;
+}
+#title {
+  margin: 0;
+  flex-grow: 1;
+}
+#logo {
+  height: 4rem;
+}
+#timestamp {
+  color: var(--text-secondary);
+  margin-top: 0.5rem;
+}
+
+#metadata-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.additional-information-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: var(--text-secondary);
+}
+
+/** SUMMARY */
+#summary {
+  color: var(--text-primary);
+  display: flex;
+  font-family: monospace;
+  font-size: 1rem;
+}
+#summary > div {
+  margin-right: 0.5rem;
+  background: var(--panel);
+  padding: 1rem;
+  min-width: 15rem;
+}
+#summary > div:last-child {
+  margin-right: 0;
+}
+@media only screen and (max-width: 720px) {
+  #summary {
+    flex-direction: column;
+  }
+  #summary > div {
+    margin-right: 0;
+    margin-top: 1rem;
+  }
+  #summary > div:first-child {
+    margin-top: 0;
+  }
+}
+
+.summary-total {
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+.summary-passed {
+  color: var(--success);
+  border-left: 0.4rem solid var(--success);
+  padding-left: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+.summary-failed,
+.summary-obsolete-snapshots {
+  color: var(--danger);
+  border-left: 0.4rem solid var(--danger);
+  padding-left: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+.summary-pending {
+  color: var(--warning);
+  border-left: 0.4rem solid var(--warning);
+  padding-left: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+.summary-empty {
+  color: var(--disabled);
+  border-left: 0.4rem solid var(--disabled);
+  margin-bottom: 0.15rem;
+}
+
+.test-result {
+  padding: 1rem;
+  margin-bottom: 0.25rem;
+}
+.test-result:last-child {
+  border: 0;
+}
+.test-result.passed {
+  background-color: var(--success-bright);
+  color: var(--success);
+}
+.test-result.failed {
+  background-color: var(--danger-bright);
+  color: var(--danger);
+}
+.test-result.pending {
+  background-color: var(--warning-bright);
+  color: var(--warning);
+}
+
+.test-info {
+  display: flex;
+  justify-content: space-between;
+}
+.test-suitename {
+  width: 20%;
+  text-align: left;
+  font-weight: bold;
+  word-break: break-word;
+}
+.test-title {
+  width: 40%;
+  text-align: left;
+  font-style: italic;
+}
+.test-status {
+  width: 20%;
+  text-align: right;
+}
+.test-duration {
+  width: 10%;
+  text-align: right;
+  font-size: 0.85rem;
+}
+
+.failureMessages {
+  padding: 0 1rem;
+  margin-top: 1rem;
+  border-top: 1px dashed var(--danger);
+}
+.failureMessages.suiteFailure {
+  border-top: none;
+}
+.failureMsg {
+  white-space: pre-wrap;
+  white-space: -moz-pre-wrap;
+  white-space: -pre-wrap;
+  white-space: -o-pre-wrap;
+  word-wrap: break-word;
+}
+
+.suite-container {
+  margin-bottom: 1rem;
+}
+.suite-info {
+  padding: 1rem;
+  background-color: var(--panel);
+  color: var(--text-secondary);
+  border: 0.15rem solid;
+  border-color: var(--panel);
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+.suite-info:hover {
+  border-color: var(--border);
+  cursor: pointer;
+}
+.suite-info .suite-path {
+  word-break: break-all;
+  flex-grow: 1;
+  font-family: monospace;
+  font-size: 1rem;
+}
+.suite-info .suite-time {
+  margin-left: 1rem;
+  padding: 0.2rem 0.3rem;
+  font-size: 0.85rem;
+}
+.suite-info .suite-time.warn {
+  background-color: var(--danger);
+  color: #fff;
+}
+.suite-info:before {
+  content: "\2303";
+  display: inline-block;
+  margin-right: 1rem;
+  transform: rotate(180deg) translateY(0.15rem);
+}
+.suite-container[open] .suite-info:before {
+  transform: rotate(0deg) translateY(0.15rem);
+}
+
+/* CONSOLE LOGS */
+.suite-consolelog {
+  margin-bottom: 0.25rem;
+  padding: 1rem;
+  background-color: var(--panel);
+}
+.suite-consolelog-header {
+  font-weight: bold;
+}
+.suite-consolelog-item {
+  padding: 0.5rem;
+}
+.suite-consolelog-item pre {
+  margin: 0.5rem 0;
+  white-space: pre-wrap;
+  white-space: -moz-pre-wrap;
+  white-space: -pre-wrap;
+  white-space: -o-pre-wrap;
+  word-wrap: break-word;
+}
+.suite-consolelog-item-origin {
+  color: var(--text-secondary);
+  font-weight: bold;
+}
+.suite-consolelog-item-message {
+  color: var(--text-primary);
+  font-size: 1rem;
+  padding: 0 0.5rem;
+}
+
+/* OBSOLETE SNAPSHOTS */
+.suite-obsolete-snapshots {
+  margin-bottom: 0.25rem;
+  padding: 1rem;
+  background-color: var(--danger-bright);
+  color: var(--danger);
+}
+.suite-obsolete-snapshots-header {
+  font-weight: bold;
+}
+.suite-obsolete-snapshots-item {
+  padding: 0.5rem;
+}
+.suite-obsolete-snapshots-item pre {
+  margin: 0.5rem 0;
+  white-space: pre-wrap;
+  white-space: -moz-pre-wrap;
+  white-space: -pre-wrap;
+  white-space: -o-pre-wrap;
+  word-wrap: break-word;
+}
+.suite-obsolete-snapshots-item-message {
+  color: var(--text-primary);
+  font-size: 1rem;
+  padding: 0 0.5rem;
+}
+</style></head><body><main class="jesthtml-content"><header><h1 id="title">Test Report</h1></header><section id="metadata-container"><div id="timestamp">Started: 2025-09-03 13:51:27</div><div id="summary"><div id="suite-summary"><div class="summary-total">Suites (5)</div><div class="summary-passed ">5 passed</div><div class="summary-failed  summary-empty">0 failed</div><div class="summary-pending  summary-empty">0 pending</div></div><div id="test-summary"><div class="summary-total">Tests (71)</div><div class="summary-passed ">71 passed</div><div class="summary-failed  summary-empty">0 failed</div><div class="summary-pending  summary-empty">0 pending</div></div></div></section><details id="suite-1" class="suite-container" open=""><summary class="suite-info"><div class="suite-path">C:\Users\khans\Projects\stargate\src\sgtm-container\sgtm-container.service.spec.ts</div><div class="suite-time">4.064s</div></summary><div class="suite-tests"><div class="test-result passed"><div class="test-info"><div class="test-suitename">SgtmContainerService</div><div class="test-title">should be defined</div><div class="test-status">passed</div><div class="test-duration">0.034s</div></div></div></div></details><details id="suite-2" class="suite-container" open=""><summary class="suite-info"><div class="suite-path">C:\Users\khans\Projects\stargate\src\users\users.service.spec.ts</div><div class="suite-time">4.018s</div></summary><div class="suite-tests"><div class="test-result passed"><div class="test-info"><div class="test-suitename">UsersService &gt; findByEmail</div><div class="test-title">should return user by email</div><div class="test-status">passed</div><div class="test-duration">0.059s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">UsersService &gt; findByEmail</div><div class="test-title">should return null if user not found</div><div class="test-status">passed</div><div class="test-duration">0.007s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">UsersService &gt; findById</div><div class="test-title">should return user by id</div><div class="test-status">passed</div><div class="test-duration">0.059s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">UsersService &gt; markEmailAsVerified</div><div class="test-title">should mark email as verified</div><div class="test-status">passed</div><div class="test-duration">0.006s</div></div></div></div></details><details id="suite-3" class="suite-container" open=""><summary class="suite-info"><div class="suite-path">C:\Users\khans\Projects\stargate\src\database\prisma\prisma.service.spec.ts</div><div class="suite-time">1.337s</div></summary><div class="suite-tests"><div class="test-result passed"><div class="test-info"><div class="test-suitename">PrismaService</div><div class="test-title">should be defined</div><div class="test-status">passed</div><div class="test-duration">0.057s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">PrismaService &gt; onModuleInit</div><div class="test-title">should connect to the database</div><div class="test-status">passed</div><div class="test-duration">0.278s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">PrismaService &gt; onModuleDestroy</div><div class="test-title">should disconnect from the database</div><div class="test-status">passed</div><div class="test-duration">0.013s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">PrismaService &gt; cleanDatabase</div><div class="test-title">should throw error in production</div><div class="test-status">passed</div><div class="test-duration">0.02s</div></div></div></div></details><details id="suite-4" class="suite-container" open=""><summary class="suite-info"><div class="suite-path">C:\Users\khans\Projects\stargate\src\app.controller.spec.ts</div><div class="suite-time">2.321s</div></summary><div class="suite-tests"><div class="test-result passed"><div class="test-info"><div class="test-suitename">AppController &gt; root</div><div class="test-title">should return welcome message</div><div class="test-status">passed</div><div class="test-duration">0.01s</div></div></div></div></details><details id="suite-5" class="suite-container" open=""><summary class="suite-info"><div class="suite-path">C:\Users\khans\Projects\stargate\src\auth\auth.service.spec.ts</div><div class="suite-time warn">7.263s</div></summary><div class="suite-tests"><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; register</div><div class="test-title">should successfully register a new user</div><div class="test-status">passed</div><div class="test-duration">0.169s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; register</div><div class="test-title">should throw ConflictException if user already exists</div><div class="test-status">passed</div><div class="test-duration">0.27s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; register</div><div class="test-title">should throw BadRequestException if password is too short</div><div class="test-status">passed</div><div class="test-duration">0.15s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; validateUser</div><div class="test-title">should validate user credentials successfully</div><div class="test-status">passed</div><div class="test-duration">0.185s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; validateUser</div><div class="test-title">should throw UnauthorizedException for invalid credentials</div><div class="test-status">passed</div><div class="test-duration">0.009s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; validateUser</div><div class="test-title">should throw UnauthorizedException for unverified email</div><div class="test-status">passed</div><div class="test-duration">0.086s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; login</div><div class="test-title">should login user without 2FA</div><div class="test-status">passed</div><div class="test-duration">0.016s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; login</div><div class="test-title">should return 2FA required response when 2FA is enabled</div><div class="test-status">passed</div><div class="test-duration">0.032s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; loginWithTwoFactor</div><div class="test-title">should login with valid 2FA code</div><div class="test-status">passed</div><div class="test-duration">0.034s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; loginWithTwoFactor</div><div class="test-title">should throw error for invalid 2FA code</div><div class="test-status">passed</div><div class="test-duration">0.028s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; refreshToken</div><div class="test-title">should refresh tokens successfully</div><div class="test-status">passed</div><div class="test-duration">0.012s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; refreshToken</div><div class="test-title">should throw error for non-existent user</div><div class="test-status">passed</div><div class="test-duration">0.043s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; twoFactorAuthentication</div><div class="test-title">should generate 2FA secret successfully</div><div class="test-status">passed</div><div class="test-duration">0.064s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; twoFactorAuthentication</div><div class="test-title">should enable 2FA with valid code</div><div class="test-status">passed</div><div class="test-duration">0.061s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; twoFactorAuthentication</div><div class="test-title">should disable 2FA with valid code</div><div class="test-status">passed</div><div class="test-duration">0.045s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; OAuth &gt; validateOAuthUser</div><div class="test-title">should validate and create new OAuth user</div><div class="test-status">passed</div><div class="test-duration">0.007s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; OAuth &gt; validateOAuthUser</div><div class="test-title">should validate existing OAuth user and refresh tokens</div><div class="test-status">passed</div><div class="test-duration">0.047s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; OAuth &gt; validateOAuthUser</div><div class="test-title">should create new auth provider for existing user</div><div class="test-status">passed</div><div class="test-duration">0.02s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; OAuth &gt; getGoogleOAuth2Client</div><div class="test-title">should create and return OAuth2 client with correct configuration</div><div class="test-status">passed</div><div class="test-duration">0.014s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; OAuth &gt; getGoogleOAuth2Client</div><div class="test-title">should throw UnauthorizedException when config is missing</div><div class="test-status">passed</div><div class="test-duration">0.017s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; OAuth &gt; getGoogleTokens</div><div class="test-title">should return Google tokens for user with Google auth provider</div><div class="test-status">passed</div><div class="test-duration">0.023s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; OAuth &gt; getGoogleTokens</div><div class="test-title">should throw UnauthorizedException when Google provider not found</div><div class="test-status">passed</div><div class="test-duration">0.052s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; OAuth &gt; googleLogin</div><div class="test-title">should complete Google OAuth login successfully</div><div class="test-status">passed</div><div class="test-duration">0.011s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; OAuth &gt; googleLogin</div><div class="test-title">should throw BadRequestException when 2FA is required</div><div class="test-status">passed</div><div class="test-duration">0.005s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; passwordReset</div><div class="test-title">should request password reset successfully</div><div class="test-status">passed</div><div class="test-duration">0.015s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; passwordReset</div><div class="test-title">should reset password with valid token</div><div class="test-status">passed</div><div class="test-duration">0.281s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; passwordReset</div><div class="test-title">should throw error for invalid reset token</div><div class="test-status">passed</div><div class="test-duration">0.012s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; changePassword</div><div class="test-title">should change password successfully</div><div class="test-status">passed</div><div class="test-duration">0.159s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; changePassword</div><div class="test-title">should throw error for incorrect current password</div><div class="test-status">passed</div><div class="test-duration">0.116s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; generateTokens</div><div class="test-title">should generate access and refresh tokens</div><div class="test-status">passed</div><div class="test-duration">0.007s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; generateTokens</div><div class="test-title">should generate tokens with remember me flag</div><div class="test-status">passed</div><div class="test-duration">0.005s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; generateTokens</div><div class="test-title">should throw error when JWT secrets are missing</div><div class="test-status">passed</div><div class="test-duration">0.005s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; loginWithBackupCode</div><div class="test-title">should login successfully with valid backup code</div><div class="test-status">passed</div><div class="test-duration">0.006s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; loginWithBackupCode</div><div class="test-title">should throw unauthorized for invalid backup code format</div><div class="test-status">passed</div><div class="test-duration">0.005s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; loginWithBackupCode</div><div class="test-title">should throw unauthorized for user without 2FA</div><div class="test-status">passed</div><div class="test-duration">0.044s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; emailVerification &gt; generateEmailVerificationToken</div><div class="test-title">should generate email verification token</div><div class="test-status">passed</div><div class="test-duration">0.019s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; emailVerification &gt; generateEmailVerificationToken</div><div class="test-title">should throw InternalServerErrorException when JWT_SECRET is missing</div><div class="test-status">passed</div><div class="test-duration">0.024s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; emailVerification &gt; resendVerificationEmail</div><div class="test-title">should resend verification email successfully</div><div class="test-status">passed</div><div class="test-duration">0.013s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; emailVerification &gt; resendVerificationEmail</div><div class="test-title">should throw NotFoundException for non-existent user</div><div class="test-status">passed</div><div class="test-duration">0.099s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; emailVerification &gt; resendVerificationEmail</div><div class="test-title">should throw BadRequestException for already verified email</div><div class="test-status">passed</div><div class="test-duration">0.005s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; providerManagement &gt; getUserProviders</div><div class="test-title">should return user auth providers</div><div class="test-status">passed</div><div class="test-duration">0.009s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; providerManagement &gt; setPrimaryProvider</div><div class="test-title">should set provider as primary successfully</div><div class="test-status">passed</div><div class="test-duration">0.005s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; providerManagement &gt; unlinkProvider</div><div class="test-title">should unlink provider successfully</div><div class="test-status">passed</div><div class="test-duration">0.009s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; providerManagement &gt; unlinkProvider</div><div class="test-title">should throw BadRequestException when unlinking only provider without password</div><div class="test-status">passed</div><div class="test-duration">0.005s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; providerManagement &gt; unlinkProvider</div><div class="test-title">should set new primary provider when unlinking primary provider</div><div class="test-status">passed</div><div class="test-duration">0.004s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; providerManagement &gt; unlinkProvider</div><div class="test-title">should throw NotFoundException when provider is not linked</div><div class="test-status">passed</div><div class="test-duration">0.075s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; generateGTMPermissionToken</div><div class="test-title">should generate GTM permission token successfully</div><div class="test-status">passed</div><div class="test-duration">0.004s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; generateGTMPermissionToken</div><div class="test-title">should generate token without context if not provided</div><div class="test-status">passed</div><div class="test-duration">0.004s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; generateGTMPermissionToken</div><div class="test-title">should throw UnauthorizedException when user not found</div><div class="test-status">passed</div><div class="test-duration">0.011s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; generateGTMPermissionToken</div><div class="test-title">should throw UnauthorizedException when Google auth not configured</div><div class="test-status">passed</div><div class="test-duration">0.004s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; generateGTMPermissionToken</div><div class="test-title">should include correct GTM permissions in token</div><div class="test-status">passed</div><div class="test-duration">0.015s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; facebookLogin</div><div class="test-title">should complete Facebook OAuth login successfully</div><div class="test-status">passed</div><div class="test-duration">0.006s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; githubLogin</div><div class="test-title">should complete GitHub OAuth login successfully</div><div class="test-status">passed</div><div class="test-duration">0.005s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; verifyTwoFactorCode</div><div class="test-title">should verify valid 2FA code successfully</div><div class="test-status">passed</div><div class="test-duration">0.003s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; verifyTwoFactorCode</div><div class="test-title">should return false for user without 2FA secret</div><div class="test-status">passed</div><div class="test-duration">0.052s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; verifyTwoFactorCode</div><div class="test-title">should return false for invalid code format</div><div class="test-status">passed</div><div class="test-duration">0.004s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; verifyTwoFactorCode</div><div class="test-title">should return false when user not found</div><div class="test-status">passed</div><div class="test-duration">0.007s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; getTwoFactorStatus</div><div class="test-title">should return 2FA status for user</div><div class="test-status">passed</div><div class="test-duration">0.004s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; getTwoFactorStatus</div><div class="test-title">should return disabled status when 2FA is not enabled</div><div class="test-status">passed</div><div class="test-duration">0.004s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; errorHandling</div><div class="test-title">should handle database errors gracefully</div><div class="test-status">passed</div><div class="test-duration">0.022s</div></div></div><div class="test-result passed"><div class="test-info"><div class="test-suitename">AuthService &gt; errorHandling</div><div class="test-title">should handle JWT secret validation errors</div><div class="test-status">passed</div><div class="test-duration">0.009s</div></div></div></div></details></main></body></html>
