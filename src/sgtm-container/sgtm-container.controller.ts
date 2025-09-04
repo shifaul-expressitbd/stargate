@@ -14,6 +14,8 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiExtraModels,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -25,6 +27,7 @@ import { UpdateSgtmContainerConfigDto } from './dto/update-sgtm-container-config
 import { SgtmContainerService } from './sgtm-container.service';
 
 @ApiTags('sGTM-containers')
+@ApiExtraModels(CreateSgtmContainerDto, UpdateSgtmContainerConfigDto)
 @Controller('sgtm-containers')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('JWT-auth')
@@ -36,6 +39,38 @@ export class SgtmContainerController {
     summary: 'Create a new GTM container',
     description:
       'Creates and starts a new GTM container using the docker-tagserver-create command. The container will be automatically configured with Nginx and SSL if available.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          example: 'gtm-unified',
+          minLength: 3,
+          maxLength: 50,
+          description: 'Container name',
+        },
+        subdomain: {
+          type: 'string',
+          example: 'tags.bikobazaar.xyz',
+          description: 'Subdomain for the container',
+        },
+        config: {
+          type: 'string',
+          example:
+            'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==',
+          description: 'Container configuration data (base64 encoded)',
+        },
+        region: {
+          type: 'string',
+          example: 'us-east-1',
+          description: 'Region where the container should be deployed',
+          nullable: true,
+        },
+      },
+      required: ['name', 'subdomain', 'config'],
+    },
   })
   @ApiResponse({
     status: 201,
@@ -195,6 +230,47 @@ export class SgtmContainerController {
   @ApiResponse({
     status: 200,
     description: 'Containers retrieved successfully',
+    content: {
+      'application/json': {
+        schema: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', example: 'cmeqncqjh0001jxf3a2sibmvy' },
+              name: { type: 'string', example: 'gtm-unified' },
+              fullName: { type: 'string', example: 'sgtm-cmepifo1-d58058f9' },
+              containerId: { type: 'string', example: 'a1b2c3d4e5f6' },
+              status: {
+                type: 'string',
+                enum: ['PENDING', 'RUNNING', 'STOPPED', 'ERROR', 'DELETED'],
+                example: 'RUNNING',
+              },
+              subdomain: { type: 'string', example: 'tags.bikobazaar.xyz' },
+              config: {
+                type: 'string',
+                example:
+                  'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==',
+              },
+              region: { type: 'string', example: 'us-east-1' },
+              userId: { type: 'string', example: 'cmepifo1d58058f9' },
+              createdAt: { type: 'string', format: 'date-time' },
+              updatedAt: { type: 'string', format: 'date-time' },
+            },
+            required: [
+              'id',
+              'name',
+              'fullName',
+              'status',
+              'subdomain',
+              'userId',
+              'createdAt',
+              'updatedAt',
+            ],
+          },
+        },
+      },
+    },
   })
   async findAll(@User('id') userId: string) {
     return this.sgtmContainerService.findAllByUser(userId);
@@ -247,7 +323,48 @@ export class SgtmContainerController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a specific GTM container' })
-  @ApiResponse({ status: 200, description: 'Container retrieved successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Container retrieved successfully',
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'cmeqncqjh0001jxf3a2sibmvy' },
+            name: { type: 'string', example: 'gtm-unified' },
+            fullName: { type: 'string', example: 'sgtm-cmepifo1-d58058f9' },
+            containerId: { type: 'string', example: 'a1b2c3d4e5f6' },
+            status: {
+              type: 'string',
+              enum: ['PENDING', 'RUNNING', 'STOPPED', 'ERROR', 'DELETED'],
+              example: 'RUNNING',
+            },
+            subdomain: { type: 'string', example: 'tags.bikobazaar.xyz' },
+            config: {
+              type: 'string',
+              example:
+                'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==',
+            },
+            region: { type: 'string', example: 'us-east-1' },
+            userId: { type: 'string', example: 'cmepifo1d58058f9' },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+          },
+          required: [
+            'id',
+            'name',
+            'fullName',
+            'status',
+            'subdomain',
+            'userId',
+            'createdAt',
+            'updatedAt',
+          ],
+        },
+      },
+    },
+  })
   @ApiResponse({ status: 404, description: 'Container not found' })
   async findOne(@Param('id') id: string, @User('id') userId: string) {
     return this.sgtmContainerService.findByIdAndUser(id, userId);
@@ -375,6 +492,26 @@ export class SgtmContainerController {
     summary: 'Update GTM container configuration',
     description:
       'Updates the configuration for a specific GTM container, including any custom Configuration Parameters.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        config: {
+          type: 'string',
+          example:
+            'aWQ9R1RNLVdGOFc4WERIJmVudj0xJmF1dGg9ZXRJdWpPajNPaWJGN2kxcU52d2hqQQ==',
+          description: 'Container configuration data (base64 encoded)',
+        },
+        serverContainerUrl: {
+          type: 'string',
+          example: 'https://container.example.com',
+          description: 'URL for server container',
+          nullable: true,
+        },
+      },
+      required: ['config'],
+    },
   })
   @ApiResponse({
     status: 200,
