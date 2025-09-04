@@ -15,10 +15,8 @@ import {
 import {
   ApiBearerAuth,
   ApiBody,
-  ApiExtraModels,
   ApiOperation,
   ApiParam,
-  ApiProperty,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -26,87 +24,15 @@ import { SgtmRegion } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import {
+  AvailableRegionsResponseDto,
+  CreateRegionDto,
+  RegionResponseDto,
+  UpdateRegionDto,
+} from './dto/sgtm-region.dto';
 import { SgtmRegionService } from './sgtm-region.service';
 
-class CreateRegionDto {
-  @ApiProperty({ example: 'us-east-1' })
-  key: string;
-  @ApiProperty({ example: 'US East 1' })
-  name: string;
-  @ApiProperty({ example: 'https://api.example.com' })
-  apiUrl: string;
-  @ApiProperty({ example: 'your-api-key' })
-  apiKey: string;
-  @ApiProperty({ required: false, example: 'A description' })
-  description?: string;
-}
-
-class UpdateRegionDto {
-  @ApiProperty({ required: false, example: 'US East 1 Updated' })
-  name?: string;
-  @ApiProperty({ required: false, example: 'https://api.updated.com' })
-  apiUrl?: string;
-  @ApiProperty({ required: false, example: 'new-api-key' })
-  apiKey?: string;
-  @ApiProperty({ required: false, example: true })
-  isActive?: boolean;
-  @ApiProperty({ required: false, example: 'Updated description' })
-  description?: string;
-}
-
-class RegionResponseDto {
-  @ApiProperty({ example: 'clhjm8x1214520kgfg30kajlm' })
-  id: string;
-  @ApiProperty({ example: 'us-east-1' })
-  key: string;
-  @ApiProperty({ example: 'US East 1' })
-  name: string;
-  @ApiProperty({ example: 'https://api.example.com' })
-  apiUrl: string;
-  @ApiProperty({ example: 'your-api-key' })
-  apiKey: string;
-  @ApiProperty({ example: true })
-  isActive: boolean;
-  @ApiProperty({ example: false })
-  isDefault: boolean;
-  @ApiProperty({ required: false, example: 'A description' })
-  description?: string;
-  @ApiProperty({ type: 'string', format: 'date-time' })
-  createdAt: Date;
-  @ApiProperty({ type: 'string', format: 'date-time' })
-  updatedAt: Date;
-}
-
-class AvailableRegionsResponseDto {
-  @ApiProperty({
-    type: 'array',
-    items: {
-      type: 'object',
-      properties: {
-        key: { type: 'string', example: 'us-east-1' },
-        name: { type: 'string', example: 'US East 1' },
-        available: { type: 'boolean', example: true },
-        default: { type: 'boolean', example: false },
-      },
-    },
-  })
-  regions: Array<{
-    key: string;
-    name: string;
-    available: boolean;
-    default: boolean;
-  }>;
-  @ApiProperty({ example: 'us-east-1' })
-  defaultRegion: string;
-}
-
 @ApiTags('SGTM Regions')
-@ApiExtraModels(
-  CreateRegionDto,
-  UpdateRegionDto,
-  RegionResponseDto,
-  AvailableRegionsResponseDto,
-)
 @Controller('sgtm-regions')
 @UseGuards(JwtAuthGuard)
 export class SgtmRegionController {
@@ -119,40 +45,7 @@ export class SgtmRegionController {
   @Roles('admin')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create a new region' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        key: {
-          type: 'string',
-          example: 'us-east-1',
-          description: 'Region key',
-        },
-        name: {
-          type: 'string',
-          example: 'US East 1',
-          description: 'Region name',
-        },
-        apiUrl: {
-          type: 'string',
-          example: 'https://api.example.com',
-          description: 'API URL for the region',
-        },
-        apiKey: {
-          type: 'string',
-          example: 'your-api-key',
-          description: 'API key for authentication',
-        },
-        description: {
-          type: 'string',
-          example: 'A description',
-          description: 'Optional description',
-          nullable: true,
-        },
-      },
-      required: ['key', 'name', 'apiUrl', 'apiKey'],
-    },
-  })
+  @ApiBody({ type: CreateRegionDto })
   @ApiResponse({
     status: 201,
     description: 'Region created successfully',
@@ -166,7 +59,7 @@ export class SgtmRegionController {
   }
 
   @Get()
-  @Roles('admin')
+  // @Roles('admin')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get all regions' })
   @ApiResponse({
@@ -215,43 +108,7 @@ export class SgtmRegionController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Update region' })
   @ApiParam({ name: 'key', description: 'Region key' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        name: {
-          type: 'string',
-          example: 'US East 1 Updated',
-          description: 'Region name',
-          nullable: true,
-        },
-        apiUrl: {
-          type: 'string',
-          example: 'https://api.updated.com',
-          description: 'API URL for the region',
-          nullable: true,
-        },
-        apiKey: {
-          type: 'string',
-          example: 'new-api-key',
-          description: 'API key for authentication',
-          nullable: true,
-        },
-        isActive: {
-          type: 'boolean',
-          example: true,
-          description: 'Whether the region is active',
-          nullable: true,
-        },
-        description: {
-          type: 'string',
-          example: 'Updated description',
-          description: 'Optional description',
-          nullable: true,
-        },
-      },
-    },
-  })
+  @ApiBody({ type: UpdateRegionDto })
   @ApiResponse({
     status: 200,
     description: 'Region updated successfully',
