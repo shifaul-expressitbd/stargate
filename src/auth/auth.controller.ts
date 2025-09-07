@@ -324,6 +324,7 @@ export class AuthController {
 
   // ========== REFRESH TOKEN ==========
   @Public()
+  @UseGuards(AuthGuard('refresh-token'))
   @Get('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth('refresh-token')
@@ -366,19 +367,53 @@ export class AuthController {
     },
   })
   async refresh(
+    @Req() req: Request,
     @User() user: any,
     @Query('rememberMe') rememberMe?: string,
   ): Promise<ApiResponse> {
     try {
-      const shouldRememberMe = rememberMe?.trim().toLowerCase() === 'true';
+      // Extract refresh token from Authorization header
+      const authHeader = req.get('Authorization');
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        this.logger.warn(
+          'Missing or invalid Authorization header for refresh token',
+        );
+        throw new UnauthorizedException(
+          this.createErrorResponse(
+            'Authorization header missing or invalid',
+            'UNAUTHORIZED',
+            'INVALID_AUTHORIZATION_HEADER',
+          ),
+        );
+      }
+
+      const refreshToken = authHeader.substring(7); // Remove 'Bearer ' prefix
+      if (!refreshToken || refreshToken.trim() === '') {
+        this.logger.warn(
+          'Empty refresh token extracted from Authorization header',
+        );
+        throw new UnauthorizedException(
+          this.createErrorResponse(
+            'Refresh token missing from Authorization header',
+            'UNAUTHORIZED',
+            'MISSING_REFRESH_TOKEN',
+          ),
+        );
+      }
+
       const result = await this.authService.refreshToken(
-        user.sub,
-        user.email,
-        shouldRememberMe,
+        refreshToken,
+        user.id,
+        req.ip,
+        req.get('User-Agent'),
       );
 
       return this.createSuccessResponse('Token refreshed successfully', result);
     } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error; // Re-throw custom errors that we've already handled
+      }
+
       this.logger.error('Token refresh failed:', error.message);
 
       throw new UnauthorizedException(

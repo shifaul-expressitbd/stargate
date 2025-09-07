@@ -38,6 +38,9 @@ model User {
   // Relations for multiple auth providers
   authProviders AuthProvider[]
 
+  // Relations for session management
+  sessions UserSession[]
+
   @@map("users")
 }
 
@@ -71,6 +74,69 @@ model AuthProvider {
   @@map("auth_providers")
 }
 
+// User Sessions for tracking active login sessions
+model UserSession {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Session metadata
+  sessionId  String  @unique // Unique identifier for this session
+  deviceInfo Json? // Device fingerprinting data (OS, browser, etc.)
+  ipAddress  String?
+  userAgent  String?
+  location   String? // Geolocation data if available
+
+  // Session status
+  isActive     Boolean  @default(true)
+  expiresAt    DateTime
+  lastActivity DateTime @default(now())
+
+  // Session configuration
+  rememberMe Boolean @default(false)
+
+  // Relations
+  refreshTokens RefreshToken[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([expiresAt])
+  @@index([isActive])
+  @@map("user_sessions")
+}
+
+// Refresh Tokens for secure token management
+model RefreshToken {
+  id        String      @id @default(cuid())
+  sessionId String
+  session   UserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  // Token data
+  tokenHash   String  @unique // Hashed refresh token for security
+  tokenFamily String? // For token rotation (each refresh generates new family)
+
+  // Token status
+  isActive  Boolean   @default(true)
+  usedAt    DateTime? // When was this token last used for refresh
+  expiresAt DateTime
+
+  // Metadata for security
+  ipAddress String? // IP from which token was created
+  userAgent String? // User agent when token was created
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sessionId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@index([isActive])
+  @@map("refresh_tokens")
+}
+
 model SgtmContainer {
   id          String          @id @default(cuid())
   name        String
@@ -91,12 +157,12 @@ model SgtmContainer {
 model SgtmRegion {
   id          String   @id @default(cuid())
   key         String   @unique // e.g., 'india', 'us-east', 'us-west', 'europe'
-  name        String   // Display name e.g., 'India', 'US East'
-  apiUrl      String   // REST API URL for the region
-  apiKey      String   // API key for the region
+  name        String // Display name e.g., 'India', 'US East'
+  apiUrl      String // REST API URL for the region
+  apiKey      String // API key for the region
   isActive    Boolean  @default(true) // Whether region is available
   isDefault   Boolean  @default(false) // Whether this is the default region
-  description String?  // Optional description
+  description String? // Optional description
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

@@ -19,6 +19,39 @@ import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginWithTwoFactorDto } from './dto/two-factor.dto';
 
+// Temporary type definitions until Prisma client generates
+interface UserSession {
+  id: string;
+  userId: string;
+  sessionId: string;
+  deviceInfo?: any;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  location?: string | null;
+  isActive: boolean;
+  expiresAt: Date;
+  lastActivity: Date;
+  rememberMe: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  refreshTokens?: RefreshToken[];
+}
+
+interface RefreshToken {
+  id: string;
+  sessionId: string;
+  tokenHash: string;
+  tokenFamily: string | null;
+  isActive: boolean;
+  usedAt?: Date | null;
+  expiresAt: Date;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  session?: UserSession;
+}
+
 export interface JwtPayload {
   sub: string;
   email: string;
@@ -31,6 +64,9 @@ export interface JwtPayload {
   rememberMe?: boolean;
   impersonatorEmail?: string;
   isImpersonation?: boolean;
+  // New properties for refresh token management
+  sessionId?: string;
+  tokenFamily?: string;
 }
 
 export interface AuthResponse {
@@ -69,6 +105,26 @@ export interface TwoFactorEnableResponse {
 export interface TwoFactorStatusResponse {
   isEnabled: boolean;
   hasSecret: boolean;
+}
+
+export interface SessionInfo {
+  id: string;
+  sessionId: string;
+  deviceInfo?: any;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  location?: string | null;
+  isActive: boolean;
+  expiresAt: Date;
+  lastActivity: Date;
+  rememberMe: boolean;
+  createdAt: Date;
+}
+
+export interface RefreshTokenResponse {
+  accessToken: string;
+  refreshToken: string;
+  session: SessionInfo;
 }
 
 @Injectable()
@@ -440,23 +496,215 @@ export class AuthService {
     }
   }
 
-  async refreshToken(
+  // ===== SESSION MANAGEMENT METHODS =====
+
+  /**
+   * Creates a new user session with device information
+   */
+  async createUserSession(
     userId: string,
-    email: string,
     rememberMe = false,
+    ipAddress?: string,
+    userAgent?: string,
+    deviceInfo?: any,
+  ): Promise<UserSession> {
+    try {
+      // Calculate session expiry
+      const sessionExpiryHours = rememberMe ? 30 * 24 : 24; // 30 days or 24 hours
+      const expiresAt = new Date(
+        Date.now() + sessionExpiryHours * 60 * 60 * 1000,
+      );
+
+      // Generate unique session ID
+      const sessionId = require('crypto').randomBytes(32).toString('hex');
+
+      const session = await this.prisma.userSession.create({
+        data: {
+          userId,
+          sessionId,
+          deviceInfo,
+          ipAddress,
+          userAgent,
+          rememberMe,
+          expiresAt,
+        },
+      });
+
+      this.logger.log(`✅ Created session ${sessionId} for user ${userId}`);
+      return session;
+    } catch (error) {
+      this.logger.error(
+        `Failed to create user session for user ${userId}:`,
+        error.message,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Stores a refresh token hashed in the database
+   */
+  async storeRefreshToken(
+    sessionId: string,
+    refreshToken: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<RefreshToken> {
+    try {
+      // Generate token hash for secure storage
+      const tokenHash = await bcrypt.hash(refreshToken, 12);
+
+      // Generate unique token family for rotation
+      const tokenFamily = require('crypto').randomBytes(16).toString('hex');
+
+      // Calculate token expiry
+      const rememberMeSession = await this.prisma.userSession.findUnique({
+        where: { id: sessionId },
+        select: { rememberMe: true },
+      });
+      const tokenExpiryHours = rememberMeSession?.rememberMe ? 30 * 24 : 7 * 24; // 30 days or 7 days
+      const expiresAt = new Date(
+        Date.now() + tokenExpiryHours * 60 * 60 * 1000,
+      );
+
+      const refreshTokenRecord = await this.prisma.refreshToken.create({
+        data: {
+          sessionId,
+          tokenHash,
+          tokenFamily,
+          ipAddress,
+          userAgent,
+          expiresAt,
+        },
+      });
+
+      this.logger.log(`✅ Stored refresh token for session ${sessionId}`);
+      return refreshTokenRecord;
+    } catch (error) {
+      this.logger.error(
+        `Failed to store refresh token for session ${sessionId}:`,
+        error.message,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Validates a refresh token against stored hashes and updates session activity
+   */
+  async validateAndConsumeRefreshToken(
+    refreshToken: string,
+    userId: string,
+  ): Promise<{ session: UserSession; tokenFamily: string | null }> {
+    try {
+      // Find active user sessions for this user
+      const activeSessions = await this.prisma.userSession.findMany({
+        where: {
+          userId,
+          isActive: true,
+          expiresAt: { gt: new Date() },
+        },
+        include: {
+          refreshTokens: {
+            where: { isActive: true },
+          },
+        },
+      });
+
+      if (activeSessions.length === 0) {
+        throw new UnauthorizedException('No active sessions found');
+      }
+
+      // Check each session for a matching refresh token
+      for (const session of activeSessions) {
+        for (const tokenRecord of session.refreshTokens) {
+          const isValidToken = await bcrypt.compare(
+            refreshToken,
+            tokenRecord.tokenHash,
+          );
+
+          if (isValidToken) {
+            // Token is valid - mark it as used and update session
+            await this.prisma.refreshToken.update({
+              where: { id: tokenRecord.id },
+              data: {
+                isActive: false, // Consume the token (single use)
+                usedAt: new Date(),
+              },
+            });
+
+            // Update session activity
+            await this.prisma.userSession.update({
+              where: { id: session.id },
+              data: { lastActivity: new Date() },
+            });
+
+            this.logger.log(
+              `✅ Consumed valid refresh token for session ${session.id}`,
+            );
+            return { session, tokenFamily: tokenRecord.tokenFamily };
+          }
+        }
+      }
+
+      throw new UnauthorizedException('Invalid refresh token');
+    } catch (error) {
+      this.logger.error(
+        `Refresh token validation failed for user ${userId}:`,
+        error.message,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Updates session activity timestamp
+   */
+  async updateSessionActivity(sessionId: string): Promise<void> {
+    try {
+      await this.prisma.userSession.update({
+        where: { id: sessionId },
+        data: { lastActivity: new Date() },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to update session activity for ${sessionId}:`,
+        error.message,
+      );
+    }
+  }
+
+  async refreshToken(
+    refreshToken: string,
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
   ): Promise<AuthResponse> {
     try {
+      // Find the user
       const user = await this.usersService.findById(userId);
       if (!user) {
         throw new UnauthorizedException('User not found');
       }
 
+      // Validate and consume the refresh token
+      const { session, tokenFamily } =
+        await this.validateAndConsumeRefreshToken(refreshToken, userId);
+      const rememberMe = session.rememberMe;
+
+      // Update session activity
+      await this.updateSessionActivity(session.id);
+
+      // Generate new tokens with rotation
       const tokens = await this.generateTokens(
         userId,
-        email,
+        user.email,
         user.roles,
         rememberMe,
+        ipAddress,
+        userAgent,
       );
+
       const { password, verificationToken, twoFactorSecret, ...userResult } =
         user;
 
@@ -491,29 +739,85 @@ export class AuthService {
     email: string,
     roles: string[],
     rememberMe = false,
-  ) {
-    const payload: JwtPayload = { sub: userId, email, roles, rememberMe };
-    const jwtSecret = this.configService.get<string>('JWT_SECRET');
-    const refreshSecret = this.configService.get<string>('JWT_REFRESH_SECRET');
-    if (!jwtSecret || !refreshSecret) throw new Error('JWT secrets missing');
+    ipAddress?: string,
+    userAgent?: string,
+    deviceInfo?: any,
+  ): Promise<RefreshTokenResponse> {
+    try {
+      const jwtSecret = this.configService.get<string>('JWT_SECRET');
+      const refreshSecret =
+        this.configService.get<string>('JWT_REFRESH_SECRET');
+      if (!jwtSecret || !refreshSecret) throw new Error('JWT secrets missing');
 
-    const accessTokenExpiresIn =
-      this.configService.get<string>('JWT_EXPIRES_IN') || '15m';
-    const refreshTokenExpiresIn = rememberMe
-      ? this.configService.get<string>('JWT_REFRESH_REMEMBER_ME_EXPIRES_IN') ||
-        '30d'
-      : this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
+      // Generate session expiry and refresh token expiry
+      const sessionExpiryHours = rememberMe ? 30 * 24 : 24; // 30 days or 24 hours
+      const refreshTokenExpiryHours = rememberMe ? 30 * 24 : 7 * 24; // 30 days or 7 days
 
-    const accessToken = await this.jwtService.signAsync(payload, {
-      secret: jwtSecret,
-      expiresIn: accessTokenExpiresIn,
-    });
-    const refreshToken = await this.jwtService.signAsync(payload, {
-      secret: refreshSecret,
-      expiresIn: refreshTokenExpiresIn,
-    });
+      // Create user session
+      const session = await this.createUserSession(
+        userId,
+        rememberMe,
+        ipAddress,
+        userAgent,
+        deviceInfo,
+      );
 
-    return { accessToken, refreshToken };
+      // Create base payload
+      const payload: JwtPayload = {
+        sub: userId,
+        email,
+        roles,
+        rememberMe,
+        sessionId: session.sessionId, // Include session ID in token
+        tokenFamily: require('crypto').randomBytes(16).toString('hex'), // New token family
+      };
+
+      const accessTokenExpiresIn =
+        this.configService.get<string>('JWT_EXPIRES_IN') || '15m';
+      const refreshTokenExpiresIn = rememberMe
+        ? this.configService.get<string>(
+            'JWT_REFRESH_REMEMBER_ME_EXPIRES_IN',
+          ) || '30d'
+        : this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
+
+      // Generate access token
+      const accessToken = await this.jwtService.signAsync(payload, {
+        secret: jwtSecret,
+        expiresIn: accessTokenExpiresIn,
+      });
+
+      // Generate refresh token with session info
+      const refreshPayload: JwtPayload = {
+        sub: userId,
+        email,
+        roles,
+        rememberMe,
+        sessionId: session.sessionId,
+        tokenFamily: payload.tokenFamily,
+      };
+
+      const refreshToken = await this.jwtService.signAsync(refreshPayload, {
+        secret: refreshSecret,
+        expiresIn: refreshTokenExpiresIn,
+      });
+
+      // Store refresh token in database
+      await this.storeRefreshToken(
+        session.id,
+        refreshToken,
+        ipAddress,
+        userAgent,
+      );
+
+      this.logger.log(`✅ Generated tokens for session ${session.sessionId}`);
+      return { accessToken, refreshToken, session };
+    } catch (error) {
+      this.logger.error(
+        `Failed to generate tokens for user ${userId}:`,
+        error.message,
+      );
+      throw error;
+    }
   }
 
   async loginWithBackupCode(
