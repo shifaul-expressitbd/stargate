@@ -16,6 +16,7 @@ import QRCode from 'qrcode-generator';
 import { PrismaService } from '../database/prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
+import { RegenerateBackupCodesDto } from './dto/backup-code.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginWithTwoFactorDto } from './dto/two-factor.dto';
 
@@ -394,7 +395,7 @@ export class AuthService {
         { sub: user.id, email: user.email },
         {
           secret: this.configService.get('JWT_SECRET'),
-          expiresIn: '5m',
+          expiresIn: '15m',
         },
       );
       return {
@@ -872,7 +873,15 @@ export class AuthService {
       }
 
       if (!matched) {
-        this.logger.warn(`Failed backup code attempt for user: ${user.email}`);
+        this.logger.warn(
+          `❌ Failed backup code attempt for user: ${user.email}`,
+        );
+        this.logger.debug(
+          `Total backup codes in DB: ${user.backupCodes.length}`,
+        );
+        this.logger.debug(
+          `Input backup code: ${normalizedBackupCode} (length: ${normalizedBackupCode.length})`,
+        );
         throw new UnauthorizedException('Invalid backup code');
       }
 
@@ -1320,13 +1329,17 @@ export class AuthService {
       const digest = hmac.digest();
 
       const offset = digest[digest.length - 1] & 0x0f;
+
       const code =
         ((digest[offset] & 0x7f) << 24) |
         ((digest[offset + 1] & 0xff) << 16) |
         ((digest[offset + 2] & 0xff) << 8) |
         (digest[offset + 3] & 0xff);
 
-      return (code % 1000000).toString().padStart(6, '0');
+      const finalCode = (code % 1000000).toString().padStart(6, '0');
+      this.logger.debug(`TOTP Code: ${finalCode} (time: ${timeCounter})`);
+
+      return finalCode;
     } catch (error) {
       return totp.generate(secret);
     }
@@ -1396,6 +1409,10 @@ export class AuthService {
       backupCodes.map((code) => bcrypt.hash(code, 12)),
     );
 
+    this.logger.log(
+      `🔐 Generated ${backupCodes.length} backup codes for user: ${user.email}`,
+    );
+
     await this.usersService.update(userId, {
       isTwoFactorEnabled: true,
       backupCodes: {
@@ -1403,6 +1420,9 @@ export class AuthService {
       },
     });
 
+    this.logger.log(
+      `📝 Stored ${hashedBackupCodes.length} hashed backup codes for user: ${user.email}`,
+    );
     this.logger.log(`✅ 2FA enabled for user: ${user.email}`);
 
     return {
@@ -1418,6 +1438,11 @@ export class AuthService {
     if (!user.twoFactorSecret) {
       throw new BadRequestException('2FA secret not found');
     }
+
+    this.logger.log(`🔄 Disabling 2FA for user: ${user.email}`);
+    this.logger.log(
+      `📋 Current state - enabled: ${user.isTwoFactorEnabled}, secret: ${!!user.twoFactorSecret}, backupCodes: ${user.backupCodes?.length || 0}`,
+    );
 
     const isValid = await this.verifyTwoFactorCode(userId, code);
     if (!isValid) {
@@ -1436,7 +1461,95 @@ export class AuthService {
       backupCodes: { set: [] },
     });
 
+    this.logger.log(
+      `🗑️ 2FA cleanup completed: secret cleared, backup codes emptied`,
+    );
     this.logger.log(`✅ 2FA disabled for user: ${user.email}`);
+
+    // Double-check the cleanup was successful
+    const updatedUser = await this.usersService.findById(userId);
+    if (updatedUser?.twoFactorSecret || updatedUser?.backupCodes?.length) {
+      this.logger.warn(`⚠️ 2FA cleanup incomplete for user ${user.email}`);
+    } else {
+      this.logger.log(`🛡️ 2FA fully disabled for user: ${user.email}`);
+    }
+  }
+
+  async regenerateBackupCodes(
+    userId: string,
+    dto: RegenerateBackupCodesDto,
+  ): Promise<TwoFactorEnableResponse> {
+    try {
+      const user = await this.usersService.findById(userId);
+      if (!user) {
+        throw new BadRequestException('User not found');
+      }
+
+      if (!user.isTwoFactorEnabled) {
+        throw new BadRequestException(
+          'Two-factor authentication is not enabled for this account',
+        );
+      }
+
+      if (!user.twoFactorSecret) {
+        throw new BadRequestException('2FA secret not found');
+      }
+
+      // Verify the provided TOTP code
+      const isValid = await this.verifyTwoFactorCode(
+        userId,
+        dto.verificationCode,
+      );
+      if (!isValid) {
+        const currentCode = totp.generate(user.twoFactorSecret);
+        this.logger.warn(
+          `2FA regeneration failed for ${user.email}: Expected=${currentCode}, Received=${dto.verificationCode}`,
+        );
+        throw new UnauthorizedException(
+          `Invalid verification code. Please verify your device time and try again.`,
+        );
+      }
+
+      // Generate new backup codes
+      const newBackupCodes = Array.from({ length: 10 }, () =>
+        Math.random().toString(36).slice(2, 10).toUpperCase(),
+      );
+
+      // Hash the new backup codes
+      const hashedBackupCodes = await Promise.all(
+        newBackupCodes.map((code) => bcrypt.hash(code, 12)),
+      );
+
+      // Update user with new hashed backup codes
+      await this.usersService.update(userId, {
+        backupCodes: {
+          set: hashedBackupCodes,
+        },
+      });
+
+      this.logger.log(
+        `🔄 Regenerated ${newBackupCodes.length} backup codes for user: ${user.email}`,
+      );
+
+      return {
+        backupCodes: newBackupCodes,
+      };
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof UnauthorizedException
+      ) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Failed to regenerate backup codes for user ${userId}:`,
+        error.message,
+      );
+      throw new InternalServerErrorException(
+        'Failed to regenerate backup codes',
+      );
+    }
   }
 
   async getTwoFactorStatus(userId: string): Promise<TwoFactorStatusResponse> {

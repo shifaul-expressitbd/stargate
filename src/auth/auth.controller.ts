@@ -35,7 +35,10 @@ import { UrlConfigService } from '../config/url.config';
 import { PrismaService } from '../database/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
-import { LoginWithBackupCodeDto } from './dto/backup-code.dto';
+import {
+  LoginWithBackupCodeDto,
+  RegenerateBackupCodesDto,
+} from './dto/backup-code.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -1206,6 +1209,81 @@ export class AuthController {
       this.logger.error('2FA disable failed:', error.message);
       throw new BadRequestException(
         this.createErrorResponse(error.message, '2FA_ERROR', 'DISABLE_FAILED'),
+      );
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Throttle({ default: { limit: 3, ttl: 300 } })
+  @Post('2fa/regenerate-backup-codes')
+  @ApiOperation({ summary: 'Regenerate new backup codes for 2FA' })
+  @ApiResponse({
+    status: 200,
+    description: 'Backup codes regenerated successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Backup codes regenerated successfully',
+        data: {
+          backupCodes: ['NEWCODE1', 'NEWCODE2', 'NEWCODE3'],
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad Request - 2FA not enabled or invalid code',
+    schema: {
+      example: {
+        success: false,
+        message: 'Two-factor authentication is not enabled for this account',
+        error: 'BAD_REQUEST',
+        code: '2FA_NOT_ENABLED',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid verification code',
+    schema: {
+      example: {
+        success: false,
+        message: 'Invalid verification code',
+        error: 'UNAUTHORIZED',
+        code: 'INVALID_VERIFICATION_CODE',
+      },
+    },
+  })
+  async regenerateBackupCodes(
+    @User('id') userId: string,
+    @Body() dto: RegenerateBackupCodesDto,
+  ): Promise<ApiResponse> {
+    try {
+      const result = await this.authService.regenerateBackupCodes(userId, dto);
+      return this.createSuccessResponse(
+        'Backup codes regenerated successfully',
+        result,
+      );
+    } catch (error) {
+      this.logger.error('Backup codes regeneration failed:', error.message);
+
+      if (error instanceof UnauthorizedException) {
+        throw new UnauthorizedException(
+          this.createErrorResponse(
+            error.message,
+            'UNAUTHORIZED',
+            'INVALID_VERIFICATION_CODE',
+          ),
+        );
+      }
+
+      throw new BadRequestException(
+        this.createErrorResponse(
+          error.message,
+          'REGENERATION_ERROR',
+          'BACKUP_CODE_REGENERATION_FAILED',
+        ),
       );
     }
   }

@@ -30,3 +30,16 @@ export class LoginWithBackupCodeDto {
   @IsNotEmpty()
   tempToken: string;
 }
+
+export class RegenerateBackupCodesDto {
+  @ApiProperty({
+    example: '123456',
+    description: 'Current 2FA TOTP code for verification',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[0-9]{6}$/, {
+    message: 'Verification code must be exactly 6 digits',
+  })
+  verificationCode: string;
+}
