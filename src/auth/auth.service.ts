@@ -131,7 +131,7 @@ export interface RefreshTokenResponse {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly appName = 'StarGate';
+  private readonly appName = 'StarGate Platform';
 
   // GTM Permission Token Configuration
   private readonly GTM_PERMISSIONS = [
@@ -1202,9 +1202,11 @@ export class AuthService {
 
       const secret = authenticator.generateSecret();
       const serviceName = this.appName.replace(/\s+/g, '');
-      const accountName = user.email;
+      const issuer = this.appName;
+      const accountName = `${user.email.split('@')[0]}@${user.email.split('@')[1]}`;
 
-      const otpAuthUrl = authenticator.keyuri(accountName, serviceName, secret);
+      // Manual construction for better issuer support
+      const otpAuthUrl = `otpauth://totp/${encodeURIComponent(`${issuer}:${accountName}`)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
 
       // Handle QR code generation with proper error checking
       try {
