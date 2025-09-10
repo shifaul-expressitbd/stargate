@@ -3,9 +3,10 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
-  Matches,
+  Matches
 } from 'class-validator';
 
 export class EnableTwoFactorDto {
@@ -37,6 +38,15 @@ export class VerifyTwoFactorDto {
   @IsNotEmpty()
   @Matches(/^\d{6}$/, { message: 'Code must be 6 digits' })
   code: string;
+
+  @ApiProperty({
+    example: 1641785685000,
+    required: false,
+    description: 'Client-reported timestamp to help debug time sync issues (Unix timestamp in milliseconds)',
+  })
+  @IsNumber()
+  @IsOptional()
+  clientTimestamp?: number;
 }
 
 export class DisableTwoFactorDto {
@@ -67,6 +77,15 @@ export class LoginWithTwoFactorDto {
   @IsString()
   @IsNotEmpty()
   tempToken: string;
+
+  @ApiProperty({
+    example: 1641785685000,
+    required: false,
+    description: 'Client-reported timestamp to help debug time sync issues (Unix timestamp in milliseconds)',
+  })
+  @IsNumber()
+  @IsOptional()
+  clientTimestamp?: number;
 
   @ApiProperty({ example: false, required: false })
   @IsBoolean()

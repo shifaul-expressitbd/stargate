@@ -69,7 +69,7 @@ export class AuthController {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly urlConfigService: UrlConfigService,
-  ) {}
+  ) { }
 
   private createSuccessResponse<T>(message: string, data?: T): ApiResponse<T> {
     return {
@@ -1367,6 +1367,46 @@ export class AuthController {
         ),
       );
     }
+  }
+
+  // ========== TIME SYNCHRONIZATION ==========
+
+  @Public()
+  @Get('server-time')
+  @ApiOperation({
+    summary: 'Get server UTC time for TOTP synchronization',
+    description: 'Returns the current server time in UTC to help sync client TOTP generators. Clients can use this to verify their clock is synced with the server.'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Server time retrieved successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Server time retrieved successfully',
+        data: {
+          serverTime: '2025-09-10T16:54:45.123Z',
+          serverTimestamp: 1641785685123,
+          utcOffset: 0,
+          timezone: 'UTC',
+          totpStep: 30,
+          totpWindow: 2
+        },
+      },
+    },
+  })
+  getServerTime(): ApiResponse {
+    const now = new Date();
+    const data = {
+      serverTime: now.toISOString(),
+      serverTimestamp: Math.floor(now.getTime() / 1000),
+      utcOffset: 0,
+      timezone: 'UTC',
+      totpStep: 30,
+      totpWindow: 2,
+    };
+
+    return this.createSuccessResponse('Server time retrieved successfully', data);
   }
 
   // ========== LOGOUT ==========

@@ -777,8 +777,8 @@ export class AuthService {
         this.configService.get<string>('JWT_EXPIRES_IN') || '15m';
       const refreshTokenExpiresIn = rememberMe
         ? this.configService.get<string>(
-            'JWT_REFRESH_REMEMBER_ME_EXPIRES_IN',
-          ) || '30d'
+          'JWT_REFRESH_REMEMBER_ME_EXPIRES_IN',
+        ) || '30d'
         : this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
 
       // Generate access token
@@ -1302,9 +1302,31 @@ export class AuthService {
       }
 
       const currentExpected = totp.generate(secret);
+      const serverTime = new Date().toISOString();
+      const serverTimestamp = Math.floor(Date.now() / 1000);
+
       this.logger.warn(`❌ No matching code found for user: ${user.email}`);
       this.logger.debug(`Current expected code: ${currentExpected}`);
       this.logger.debug(`Received code: ${cleanCode}`);
+      this.logger.debug(`Server time: ${serverTime} (${serverTimestamp})`);
+      this.logger.debug(`Checked time window: ${-windowSize * timeStep}s to +${windowSize * timeStep}s`);
+
+      // Log expected codes at different time offsets for debugging
+      for (let i = -windowSize; i <= windowSize; i++) {
+        const testTime = currentTime + i * timeStep;
+        try {
+          const testCode = this.generateTOTPCode(secret, Math.floor(testTime / timeStep));
+          this.logger.debug(`Expected code at offset ${i * timeStep}s: ${testCode} (time: ${new Date(testTime * 1000).toISOString()})`);
+        } catch (error) {
+          this.logger.debug(`Error calculating code for offset ${i * timeStep}s: ${error.message}`);
+        }
+      }
+
+      // Provide debugging info in the warning
+      this.logger.warn(`⏰ Time sync debugging for user ${userId}:`);
+      this.logger.warn(`📱 Ensure authenticator app is time-synced with NTP server`);
+      this.logger.warn(`🌍 Client timezone differences may cause this issue`);
+      this.logger.warn(`⚙️ Check device time vs ${serverTime}`);
 
       return false;
     } catch (error) {
@@ -1395,15 +1417,15 @@ export class AuthService {
 
       throw new UnauthorizedException(
         `Invalid verification code. Server expected: ${currentCode} (${timeInfo}). ` +
-          'Please check your device time synchronization.',
+        'Please check your device time synchronization.',
       );
     }
 
     const backupCodes = skipBackup
       ? []
       : Array.from({ length: 8 }, () =>
-          Math.random().toString(36).slice(2, 10).toUpperCase(),
-        );
+        Math.random().toString(36).slice(2, 10).toUpperCase(),
+      );
 
     const hashedBackupCodes = await Promise.all(
       backupCodes.map((code) => bcrypt.hash(code, 12)),
