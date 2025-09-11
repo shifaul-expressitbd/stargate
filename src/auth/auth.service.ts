@@ -13,6 +13,7 @@ import * as bcrypt from 'bcryptjs';
 import { google } from 'googleapis';
 import { authenticator, totp } from 'otplib';
 import QRCode from 'qrcode-generator';
+import { LoggerService } from 'src/utils/logger/logger.service';
 import { PrismaService } from '../database/prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
@@ -122,6 +123,15 @@ export interface SessionInfo {
   lastActivity: Date;
   rememberMe: boolean;
   createdAt: Date;
+  browserFingerprintHash?: string | null;
+  deviceFingerprintConfidence?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  timezone?: string | null;
+  riskScore?: number;
+  unusualActivityCount?: number;
+  invalidatedAt?: Date | null;
+  invalidationReason?: string | null;
 }
 
 export interface RefreshTokenResponse {
@@ -163,6 +173,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
     private readonly prisma: PrismaService,
+    private readonly loggerService: LoggerService,
   ) {
     this.validateJWTSecrets();
 
@@ -236,15 +247,6 @@ export class AuthService {
     this.logger.log(
       `🔐 [AuthService] JWT_REFRESH_SECRET length: ${jwtRefreshSecret?.length || 'undefined'}`,
     );
-
-    console.log('JWT Secrets Debug:', {
-      jwtSecret: jwtSecret ? `${jwtSecret.substring(0, 10)}...` : 'NOT FOUND',
-      jwtRefreshSecret: jwtRefreshSecret
-        ? `${jwtRefreshSecret.substring(0, 10)}...`
-        : 'NOT FOUND',
-      timestamp: new Date().toISOString(),
-      testIdentifier: process.env.TEST_NAME || 'unknown',
-    });
 
     if (!jwtSecret || jwtSecret.length < 32) {
       this.logger.error(
@@ -528,47 +530,6 @@ export class AuthService {
   // ===== SESSION MANAGEMENT METHODS =====
 
   /**
-   * Creates a new user session with device information
-   */
-  async createUserSession(
-    userId: string,
-    rememberMe = false,
-    ipAddress?: string,
-    userAgent?: string,
-    deviceInfo?: any,
-  ): Promise<UserSession> {
-    try {
-      // Calculate session expiry
-      const sessionExpiryHours = rememberMe ? 30 * 24 : 24; // 30 days or 24 hours
-      const expiresAt = new Date(
-        Date.now() + sessionExpiryHours * 60 * 60 * 1000,
-      );
-
-      // Generate unique session ID
-      const sessionId = require('crypto').randomBytes(32).toString('hex');
-
-      const session = await this.prisma.userSession.create({
-        data: {
-          userId,
-          sessionId,
-          deviceInfo,
-          ipAddress,
-          userAgent,
-          rememberMe,
-          expiresAt,
-        },
-      });
-
-      this.logger.log(`✅ Created session ${sessionId} for user ${userId}`);
-      return session;
-    } catch (error) {
-      this.logger.error(
-        `Failed to create user session for user ${userId}:`,
-        error.message,
-      );
-      throw error;
-    }
-  }
 
   /**
    * Stores a refresh token hashed in the database
@@ -726,6 +687,15 @@ export class AuthService {
           lastActivity: true,
           rememberMe: true,
           createdAt: true,
+          browserFingerprintHash: true,
+          deviceFingerprintConfidence: true,
+          latitude: true,
+          longitude: true,
+          timezone: true,
+          riskScore: true,
+          unusualActivityCount: true,
+          invalidatedAt: true,
+          invalidationReason: true,
         },
         orderBy: {
           lastActivity: 'desc',
@@ -744,6 +714,15 @@ export class AuthService {
         lastActivity: session.lastActivity,
         rememberMe: session.rememberMe,
         createdAt: session.createdAt,
+        browserFingerprintHash: session.browserFingerprintHash,
+        deviceFingerprintConfidence: session.deviceFingerprintConfidence,
+        latitude: session.latitude,
+        longitude: session.longitude,
+        timezone: session.timezone,
+        riskScore: session.riskScore,
+        unusualActivityCount: session.unusualActivityCount,
+        invalidatedAt: session.invalidatedAt,
+        invalidationReason: session.invalidationReason,
       }));
     } catch (error) {
       this.logger.error(
@@ -1079,6 +1058,733 @@ export class AuthService {
     }
   }
 
+  // ===== DEVICE FINGERPRINTING AND SECURITY METHODS =====
+
+  /**
+   * Generate a browser fingerprint hash from User-Agent and other headers
+   */
+  private generateBrowserFingerprintHash(
+    userAgent: string,
+    additionalHeaders?: Record<string, string>,
+  ): string {
+    try {
+      const crypto = require('crypto');
+
+      // Create fingerprint from User-Agent and additional headers
+      const fingerprintData = {
+        userAgent: userAgent || '',
+        acceptLanguage: additionalHeaders?.['accept-language'] || '',
+        acceptEncoding: additionalHeaders?.['accept-encoding'] || '',
+        accept: additionalHeaders?.['accept'] || '',
+        dnt: additionalHeaders?.['dnt'] || '',
+        secChUa: additionalHeaders?.['sec-ch-ua'] || '',
+        secChUaMobile: additionalHeaders?.['sec-ch-ua-mobile'] || '',
+        secChUaPlatform: additionalHeaders?.['sec-ch-ua-platform'] || '',
+      };
+
+      // Create a stable hash from the fingerprint data
+      const fingerprintString = JSON.stringify(
+        fingerprintData,
+        Object.keys(fingerprintData).sort(),
+      );
+      return crypto
+        .createHash('sha256')
+        .update(fingerprintString)
+        .digest('hex');
+    } catch (error) {
+      this.logger.warn(
+        'Failed to generate browser fingerprint hash:',
+        error.message,
+      );
+      return '';
+    }
+  }
+
+  /**
+   * Detect geolocation from IP address (simplified implementation)
+   */
+  private async detectGeolocation(ipAddress: string): Promise<{
+    latitude?: number;
+    longitude?: number;
+    timezone?: string;
+    location?: string;
+  }> {
+    try {
+      // For this implementation, we'll use a simple IP-based geolocation
+      // In production, you'd use a service like MaxMind GeoIP or ip-api.com
+
+      // Skip geolocation for private/local IPs
+      if (this.isPrivateIP(ipAddress)) {
+        return { location: 'Local Network' };
+      }
+
+      // Simple timezone detection based on IP (this is very basic)
+      // In production, use a proper geolocation service
+      const timezone = this.guessTimezoneFromIP(ipAddress);
+
+      return {
+        timezone,
+        location: this.getLocationFromTimezone(timezone),
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Failed to detect geolocation for IP ${ipAddress}:`,
+        error.message,
+      );
+      return {};
+    }
+  }
+
+  /**
+   * Check if IP is private/local
+   */
+  private isPrivateIP(ip: string): boolean {
+    const privateRanges = [
+      /^10\./,
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
+      /^192\.168\./,
+      /^127\./,
+      /^::1$/,
+      /^fc00:/,
+      /^fe80:/,
+    ];
+    return privateRanges.some((range) => range.test(ip));
+  }
+
+  /**
+   * Guess timezone from IP (very basic implementation)
+   */
+  private guessTimezoneFromIP(ip: string): string {
+    // This is a very basic implementation
+    // In production, use a proper geolocation service
+
+    // Default to UTC
+    if (!ip || ip === 'unknown' || ip === '::1') {
+      return 'UTC';
+    }
+
+    // For demonstration, we'll use a simple mapping
+    // This should be replaced with actual geolocation service
+    return 'Asia/Dhaka'; // Default for this example
+  }
+
+  /**
+   * Get location string from timezone
+   */
+  private getLocationFromTimezone(timezone: string): string {
+    const locationMap: Record<string, string> = {
+      UTC: 'Unknown',
+      'America/New_York': 'New York, US',
+      'America/Los_Angeles': 'Los Angeles, US',
+      'Europe/London': 'London, UK',
+      'Europe/Paris': 'Paris, France',
+      'Asia/Tokyo': 'Tokyo, Japan',
+      'Asia/Shanghai': 'Shanghai, China',
+      'Asia/Dhaka': 'Dhaka, Bangladesh',
+      'Australia/Sydney': 'Sydney, Australia',
+    };
+
+    return locationMap[timezone] || timezone;
+  }
+
+  /**
+   * Detect suspicious activity based on session patterns
+   */
+  private async detectSuspiciousActivity(
+    userId: string,
+    currentSession: any,
+    newIpAddress?: string,
+    newUserAgent?: string,
+    newDeviceFingerprint?: string,
+  ): Promise<{
+    isSuspicious: boolean;
+    riskScore: number;
+    reasons: string[];
+  }> {
+    const reasons: string[] = [];
+    let riskScore = 0;
+
+    try {
+      // Get recent sessions for this user
+      const recentSessions = await this.prisma.userSession.findMany({
+        where: {
+          userId,
+          createdAt: {
+            gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Last 30 days
+          },
+        },
+        select: {
+          ipAddress: true,
+          userAgent: true,
+          browserFingerprintHash: true,
+          location: true,
+          createdAt: true,
+          deviceFingerprintConfidence: true,
+          latitude: true,
+          longitude: true,
+          timezone: true,
+          riskScore: true,
+          unusualActivityCount: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: 10, // Last 10 sessions
+      });
+
+      // Check for IP address changes
+      if (newIpAddress && !this.isPrivateIP(newIpAddress)) {
+        const uniqueIPs = new Set(
+          recentSessions.map((s) => s.ipAddress).filter(Boolean),
+        );
+        if (uniqueIPs.size > 0 && !uniqueIPs.has(newIpAddress)) {
+          riskScore += 0.3; // Moderate risk for new IP
+          reasons.push('New IP address detected');
+
+          // Log IP change
+          this.loggerService.security(
+            'IP_ADDRESS_CHANGED',
+            {
+              previousIPs: Array.from(uniqueIPs),
+              newIP: newIpAddress,
+            },
+            userId,
+            newIpAddress,
+          );
+        }
+      }
+
+      // Check for device fingerprint changes
+      if (newDeviceFingerprint) {
+        const uniqueFingerprints = new Set(
+          recentSessions.map((s) => s.browserFingerprintHash).filter(Boolean),
+        );
+        if (
+          uniqueFingerprints.size > 0 &&
+          !uniqueFingerprints.has(newDeviceFingerprint)
+        ) {
+          riskScore += 0.4; // Higher risk for new device
+          reasons.push('New device fingerprint detected');
+
+          // Log device change
+          this.loggerService.security(
+            'DEVICE_FINGERPRINT_CHANGED',
+            {
+              previousFingerprints: Array.from(uniqueFingerprints),
+              newFingerprint: newDeviceFingerprint,
+            },
+            userId,
+            newIpAddress,
+          );
+        }
+      }
+
+      // Check for unusual access patterns
+      const recentHour = new Date(Date.now() - 60 * 60 * 1000);
+      const sessionsLastHour = recentSessions.filter(
+        (s) => s.createdAt > recentHour,
+      );
+
+      if (sessionsLastHour.length > 5) {
+        riskScore += 0.5; // High risk for frequent access
+        reasons.push('Unusual access frequency detected');
+
+        this.loggerService.security(
+          'UNUSUAL_ACCESS_PATTERN',
+          {
+            sessionsInLastHour: sessionsLastHour.length,
+          },
+          userId,
+          newIpAddress,
+        );
+      }
+
+      // Check for geographic changes
+      if (newIpAddress) {
+        const newLocation = await this.detectGeolocation(newIpAddress);
+        const recentLocations = recentSessions
+          .map((s) => s.location)
+          .filter(Boolean)
+          .filter((loc, idx, arr) => arr.indexOf(loc) === idx); // Unique locations
+
+        if (
+          recentLocations.length > 0 &&
+          newLocation.location &&
+          !recentLocations.includes(newLocation.location)
+        ) {
+          riskScore += 0.2; // Low-moderate risk for new location
+          reasons.push('New geographic location detected');
+
+          this.loggerService.security(
+            'GEOLOCATION_CHANGED',
+            {
+              previousLocations: recentLocations,
+              newLocation: newLocation.location,
+            },
+            userId,
+            newIpAddress,
+          );
+        }
+      }
+
+      // Check session concurrency limits
+      const configMaxSessions = this.configService.get<number>(
+        'MAX_CONCURRENT_SESSIONS',
+        5,
+      );
+      const activeSessions = await this.prisma.userSession.count({
+        where: {
+          userId,
+          isActive: true,
+          expiresAt: { gt: new Date() },
+        },
+      });
+
+      if (activeSessions >= configMaxSessions) {
+        riskScore += 0.8; // Very high risk - session limit exceeded
+        reasons.push(
+          `Session concurrency limit exceeded (${activeSessions}/${configMaxSessions})`,
+        );
+
+        this.loggerService.security(
+          'SESSION_CONCURRENCY_LIMIT_EXCEEDED',
+          {
+            activeSessions,
+            maxAllowed: configMaxSessions,
+          },
+          userId,
+          newIpAddress,
+        );
+      }
+
+      // Increase risk score based on unusual activity count
+      if (currentSession?.unusualActivityCount > 0) {
+        riskScore += Math.min(currentSession.unusualActivityCount * 0.1, 0.5);
+        reasons.push(
+          `${currentSession.unusualActivityCount} unusual activities detected`,
+        );
+      }
+
+      // Cap risk score at 1.0
+      riskScore = Math.min(riskScore, 1.0);
+
+      const isSuspicious = riskScore >= 0.7; // Threshold for suspicious activity
+
+      if (isSuspicious) {
+        this.loggerService.security(
+          'SUSPICIOUS_ACTIVITY_DETECTED',
+          {
+            riskScore,
+            reasons,
+          },
+          userId,
+          newIpAddress,
+        );
+
+        this.loggerService.suspiciousActivity(
+          'Multiple suspicious patterns detected',
+          {
+            riskScore,
+            reasons,
+          },
+          newIpAddress,
+        );
+      }
+
+      return { isSuspicious, riskScore, reasons };
+    } catch (error) {
+      this.logger.warn(
+        `Failed to detect suspicious activity for user ${userId}:`,
+        error.message,
+      );
+      return { isSuspicious: false, riskScore: 0, reasons: [] };
+    }
+  }
+
+  /**
+   * Enhanced session creation with device fingerprinting and security checks
+   */
+  async createUserSession(
+    userId: string,
+    rememberMe = false,
+    ipAddress?: string,
+    userAgent?: string,
+    deviceInfo?: any,
+    additionalHeaders?: Record<string, string>,
+  ): Promise<UserSession> {
+    try {
+      // Enforce session concurrency limits before creating new session
+      await this.enforceSessionConcurrencyLimit(userId);
+
+      // Generate device fingerprint
+      const browserFingerprintHash = this.generateBrowserFingerprintHash(
+        userAgent || '',
+        additionalHeaders,
+      );
+
+      // Detect geolocation
+      const geolocation = ipAddress
+        ? await this.detectGeolocation(ipAddress)
+        : {};
+
+      // Calculate session expiry
+      const sessionExpiryHours = rememberMe ? 30 * 24 : 24; // 30 days or 24 hours
+      const expiresAt = new Date(
+        Date.now() + sessionExpiryHours * 60 * 60 * 1000,
+      );
+
+      // Generate unique session ID
+      const sessionId = require('crypto').randomBytes(32).toString('hex');
+
+      // Create enhanced session data
+      const sessionData = {
+        userId,
+        sessionId,
+        deviceInfo: {
+          ...deviceInfo,
+          fingerprintGeneratedAt: new Date().toISOString(),
+        },
+        ipAddress,
+        userAgent,
+        location: geolocation.location,
+        browserFingerprintHash,
+        deviceFingerprintConfidence: 0.8, // Default confidence for basic implementation
+        latitude: geolocation.latitude,
+        longitude: geolocation.longitude,
+        timezone: geolocation.timezone,
+        rememberMe,
+        expiresAt,
+      };
+
+      const session = await this.prisma.userSession.create({
+        data: sessionData,
+      });
+
+      // Log device fingerprint capture
+      if (browserFingerprintHash) {
+        this.loggerService.security(
+          'DEVICE_FINGERPRINT_CAPTURED',
+          {
+            fingerprintHash: browserFingerprintHash.substring(0, 8) + '...', // Partial hash for logging
+            confidence: sessionData.deviceFingerprintConfidence,
+            location: geolocation.location,
+          },
+          userId,
+          ipAddress,
+        );
+      }
+
+      this.logger.log(
+        `✅ Created enhanced session ${sessionId} for user ${userId}`,
+      );
+      this.loggerService.security(
+        'SESSION_ACTIVITY_MONITORED',
+        {
+          sessionId,
+          fingerprintHash: browserFingerprintHash
+            ? browserFingerprintHash.substring(0, 8) + '...'
+            : null,
+          location: geolocation.location,
+        },
+        userId,
+        ipAddress,
+      );
+
+      return session;
+    } catch (error) {
+      this.logger.error(
+        `Failed to create enhanced user session for user ${userId}:`,
+        error.message,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Enforce session concurrency limits
+   */
+  private async enforceSessionConcurrencyLimit(userId: string): Promise<void> {
+    try {
+      const configMaxSessions = this.configService.get<number>(
+        'MAX_CONCURRENT_SESSIONS',
+        5,
+      );
+
+      // Count active sessions for this user
+      const activeSessionCount = await this.prisma.userSession.count({
+        where: {
+          userId,
+          isActive: true,
+          expiresAt: { gt: new Date() },
+        },
+      });
+
+      // If limit exceeded, invalidate oldest sessions
+      if (activeSessionCount >= configMaxSessions) {
+        const sessionsToInvalidate = await this.prisma.userSession.findMany({
+          where: {
+            userId,
+            isActive: true,
+            expiresAt: { gt: new Date() },
+          },
+          select: {
+            id: true,
+            sessionId: true,
+            createdAt: true,
+          },
+          orderBy: {
+            lastActivity: 'asc', // Oldest first
+          },
+          take: activeSessionCount - configMaxSessions + 1, // Remove enough to stay under limit
+        });
+
+        if (sessionsToInvalidate.length > 0) {
+          // Mark sessions as inactive
+          await this.prisma.userSession.updateMany({
+            where: {
+              id: { in: sessionsToInvalidate.map((s) => s.id) },
+            },
+            data: {
+              isActive: false,
+              invalidatedAt: new Date(),
+              invalidationReason: 'CONCURRENCY_LIMIT_EXCEEDED',
+            },
+          });
+
+          // Log the invalidation
+          for (const session of sessionsToInvalidate) {
+            this.loggerService.security(
+              'SESSION_INVALIDATED',
+              {
+                reason: 'CONCURRENCY_LIMIT_EXCEEDED',
+                maxAllowed: configMaxSessions,
+                activeCount: activeSessionCount,
+              },
+              userId,
+            );
+
+            await this.logAccessEvent(
+              userId,
+              'SESSION_INVALIDATED',
+              session.sessionId,
+            );
+          }
+
+          this.logger.log(
+            `Enforced concurrency limit: Invalidated ${sessionsToInvalidate.length} sessions for user ${userId}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to enforce session concurrency limit for user ${userId}:`,
+        error.message,
+      );
+      // Don't throw error - allow session creation to continue
+    }
+  }
+
+  /**
+   * Enhanced session invalidation with suspicious activity detection
+   */
+  async invalidateSessionOnSuspiciousActivity(
+    userId: string,
+    sessionId: string,
+    reason: string,
+  ): Promise<void> {
+    try {
+      const session = await this.prisma.userSession.findFirst({
+        where: {
+          userId,
+          sessionId,
+        },
+      });
+
+      if (!session) {
+        throw new NotFoundException('Session not found');
+      }
+
+      // Update session with invalidation details
+      await this.prisma.userSession.update({
+        where: { id: session.id },
+        data: {
+          isActive: false,
+          invalidatedAt: new Date(),
+          invalidationReason: reason,
+          riskScore: Math.min((session.riskScore || 0) + 0.5, 1.0), // Increase risk score
+        },
+      });
+
+      // Delete all refresh tokens for this session
+      await this.prisma.refreshToken.deleteMany({
+        where: {
+          sessionId: session.id,
+        },
+      });
+
+      // Log security event
+      this.loggerService.security(
+        'SESSION_INVALIDATED',
+        {
+          reason,
+          sessionId,
+          invalidationTime: new Date().toISOString(),
+        },
+        userId,
+      );
+
+      await this.logAccessEvent(
+        userId,
+        'SESSION_INVALIDATED',
+        session.sessionId,
+      );
+
+      this.logger.log(
+        `Session ${sessionId} invalidated due to suspicious activity: ${reason}`,
+      );
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error(
+        `Failed to invalidate session ${sessionId}:`,
+        error.message,
+      );
+      throw error;
+    }
+  }
+
+  // ===== USER NOTIFICATION SYSTEM =====
+
+  /**
+   * Send security alert notification to user
+   */
+  private async sendSecurityAlert(
+    userId: string,
+    alertType: string,
+    details: any,
+  ): Promise<void> {
+    try {
+      const user = await this.usersService.findById(userId);
+      if (!user) return;
+
+      // For now, we'll use the existing mail service to send alerts
+      // In production, you might want to use push notifications, SMS, etc.
+
+      const alertMessages = {
+        NEW_DEVICE_LOGIN: {
+          subject: 'New Device Login Detected',
+          message: `A new device has logged into your account from ${details.location || 'an unknown location'}. If this wasn't you, please change your password immediately.`,
+        },
+        SUSPICIOUS_ACTIVITY: {
+          subject: 'Suspicious Activity Detected',
+          message: `We've detected suspicious activity on your account with a risk score of ${(details.riskScore * 100).toFixed(0)}%. Please review your recent sessions.`,
+        },
+        SESSION_REVOKED: {
+          subject: 'Session Revoked',
+          message: `One of your sessions has been revoked due to: ${details.reason}. If this wasn't you, please secure your account immediately.`,
+        },
+        PASSWORD_CHANGED: {
+          subject: 'Password Changed',
+          message:
+            'Your password has been successfully changed. If you did not make this change, please contact support immediately.',
+        },
+      };
+
+      const alert = alertMessages[alertType as keyof typeof alertMessages];
+      if (alert) {
+        await this.mailService.sendSecurityAlert(
+          user.email,
+          alert.subject,
+          alert.message,
+          details,
+        );
+
+        this.logger.log(`Security alert sent to ${user.email}: ${alertType}`);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to send security alert to user ${userId}:`,
+        error.message,
+      );
+    }
+  }
+
+  /**
+   * Send session activity notification
+   */
+  async notifySessionActivity(
+    userId: string,
+    activity: string,
+    sessionDetails: any,
+  ): Promise<void> {
+    try {
+      const user = await this.usersService.findById(userId);
+      if (!user) return;
+
+      // Send notifications for important session activities
+      const importantActivities = [
+        'NEW_DEVICE_LOGIN',
+        'MULTIPLE_FAILED_LOGINS',
+        'SESSION_FROM_NEW_LOCATION',
+        'ACCOUNT_RECOVERY_REQUESTED',
+      ];
+
+      if (importantActivities.includes(activity)) {
+        await this.sendSecurityAlert(userId, activity, sessionDetails);
+      }
+
+      // Log the notification attempt
+      this.loggerService.security(
+        'SESSION_ACTIVITY_NOTIFICATION',
+        {
+          activity,
+          sessionDetails,
+          notificationSent: importantActivities.includes(activity),
+        },
+        userId,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to send session activity notification to user ${userId}:`,
+        error.message,
+      );
+    }
+  }
+
+  /**
+   * Send account security summary (could be called periodically)
+   */
+  async sendSecuritySummary(userId: string): Promise<void> {
+    try {
+      const user = await this.usersService.findById(userId);
+      if (!user) return;
+
+      const sessions = await this.getActiveSessions(userId);
+      const summary = {
+        activeSessions: sessions.length,
+        locations: [
+          ...new Set(sessions.map((s) => s.location).filter(Boolean)),
+        ],
+        riskScore:
+          sessions.reduce((sum, s) => sum + (s.riskScore || 0), 0) /
+          sessions.length,
+        lastActivity: sessions.length > 0 ? sessions[0].lastActivity : null,
+      };
+
+      await this.mailService.sendSecuritySummary(
+        user.email,
+        'Weekly Security Summary',
+        summary,
+      );
+
+      this.logger.log(`Security summary sent to ${user.email}`);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to send security summary to user ${userId}:`,
+        error.message,
+      );
+    }
+  }
+
   async generateTokens(
     userId: string,
     email: string,
@@ -1087,6 +1793,7 @@ export class AuthService {
     ipAddress?: string,
     userAgent?: string,
     deviceInfo?: any,
+    additionalHeaders?: Record<string, string>,
   ): Promise<RefreshTokenResponse> {
     try {
       const jwtSecret = this.configService.get<string>('JWT_SECRET');
@@ -1098,13 +1805,14 @@ export class AuthService {
       const sessionExpiryHours = rememberMe ? 30 * 24 : 24; // 30 days or 24 hours
       const refreshTokenExpiryHours = rememberMe ? 30 * 24 : 7 * 24; // 30 days or 7 days
 
-      // Create user session
+      // Create user session with enhanced security
       const session = await this.createUserSession(
         userId,
         rememberMe,
         ipAddress,
         userAgent,
         deviceInfo,
+        additionalHeaders,
       );
 
       // Create base payload

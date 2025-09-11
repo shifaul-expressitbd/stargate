@@ -4,6 +4,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@prisma/client';
 
 @Injectable()
@@ -13,7 +14,7 @@ export class PrismaService
 {
   private readonly logger = new Logger(PrismaService.name);
 
-  constructor() {
+  constructor(private configService: ConfigService) {
     super({
       log: [
         { emit: 'event', level: 'query' },
@@ -29,7 +30,7 @@ export class PrismaService
     this.logger.log('Connecting to database...');
 
     // Log queries in development
-    if (process.env.NODE_ENV === 'development') {
+    if (this.configService.get<string>('NODE_ENV') === 'development') {
       this.$on('query' as never, (e: any) => {
         this.logger.debug(
           `Query: ${e.query} - Params: ${e.params} - Duration: ${e.duration}ms`,
@@ -52,7 +53,7 @@ export class PrismaService
   }
 
   async cleanDatabase() {
-    if (process.env.NODE_ENV === 'production') {
+    if (this.configService.get<string>('NODE_ENV') === 'production') {
       throw new Error('Cannot clean database in production');
     }
 

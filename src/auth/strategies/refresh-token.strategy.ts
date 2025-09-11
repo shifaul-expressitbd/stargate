@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { LoggerService } from 'src/utils/logger/logger.service';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { JwtPayload } from '../auth.service';
 
@@ -13,6 +14,7 @@ export class RefreshTokenStrategy extends PassportStrategy(
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly loggerService: LoggerService,
   ) {
     const refreshSecret = configService.get<string>('JWT_REFRESH_SECRET');
 
@@ -31,12 +33,26 @@ export class RefreshTokenStrategy extends PassportStrategy(
 
   async validate(payload: JwtPayload) {
     if (!payload.sub || !payload.email) {
+      this.loggerService.security('INVALID_REFRESH_TOKEN_PAYLOAD', {
+        hasSub: !!payload.sub,
+        hasEmail: !!payload.email,
+      });
       throw new UnauthorizedException('Invalid refresh token payload');
     }
 
     try {
       // Do NOT validate JWT exp here - handle expiration in the refresh endpoint
       // This allows for configurable token lifetimes beyond JWT exp
+
+      // Log successful refresh token validation
+      this.loggerService.security(
+        'REFRESH_TOKEN_VALIDATED',
+        {
+          sessionId: payload.sessionId,
+          tokenFamily: payload.tokenFamily,
+        },
+        payload.sub,
+      );
 
       return {
         id: payload.sub,
@@ -47,6 +63,13 @@ export class RefreshTokenStrategy extends PassportStrategy(
         rememberMe: payload.rememberMe || false,
       };
     } catch (error) {
+      this.loggerService.security(
+        'REFRESH_TOKEN_VALIDATION_FAILED',
+        {
+          error: error.message,
+        },
+        payload.sub,
+      );
       throw new UnauthorizedException(
         'Invalid refresh token: ' + error.message,
       );

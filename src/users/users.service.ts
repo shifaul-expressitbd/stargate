@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
+import { LoggerService } from 'src/utils/logger/logger.service';
 import { PrismaService } from '../database/prisma/prisma.service';
 
 // Define JwtPayload interface locally to avoid circular dependencies
@@ -25,6 +26,7 @@ export class UsersService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private logger: LoggerService,
   ) {}
 
   async findByEmail(email: string) {
@@ -205,9 +207,12 @@ export class UsersService {
       throw new Error('Invalid token format');
     } catch (jwtError) {
       // If JWT verification failed, try legacy database lookup
-      console.log(
-        'JWT verification failed, trying legacy token lookup:',
-        jwtError.message,
+      this.logger.warn(
+        'JWT verification failed, trying legacy token lookup',
+        'UsersService',
+        {
+          error: jwtError.message,
+        },
       );
 
       const user = await this.prisma.user.findFirst({

@@ -5,12 +5,15 @@ import {
   Logger,
   NestInterceptor,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
   private readonly logger = new Logger(LoggingInterceptor.name);
+
+  constructor(private configService: ConfigService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest();
@@ -34,7 +37,7 @@ export class LoggingInterceptor implements NestInterceptor {
           this.logger.log(
             `⬅️  ${method} ${url} - ${responseTime}ms - User: ${user?.id || 'anonymous'}`,
           );
-          if (process.env.NODE_ENV === 'development') {
+          if (this.configService.get<string>('NODE_ENV') === 'development') {
             this.logger.debug(`Response: ${JSON.stringify(data)}`);
           }
         },

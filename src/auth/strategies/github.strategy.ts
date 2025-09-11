@@ -17,17 +17,10 @@ export class GithubStrategy extends PassportStrategy(Strategy, 'github') {
 
     // Build callback URL with proper prefix
     const baseUrl =
-      process.env.NODE_ENV === 'production'
+      configService.get<string>('NODE_ENV') === 'production'
         ? 'https://your-domain.com'
         : 'http://localhost:5555';
     const callbackURL = `${baseUrl}/api/auth/github/callback`;
-
-    // Log configuration values (without sensitive data) for debugging
-    console.log('GitHub OAuth Config:', {
-      clientId: clientId ? `${clientId.substring(0, 10)}...` : 'NOT SET',
-      clientSecret: clientSecret ? 'SET' : 'NOT SET',
-      callbackURL,
-    });
 
     // Validate required configuration
     if (!clientId || !clientSecret) {

@@ -94,6 +94,19 @@ model UserSession {
   userAgent  String?
   location   String? // Geolocation data if available
 
+  // Enhanced security fields
+  browserFingerprintHash      String? // Hash of browser fingerprint for device tracking
+  deviceFingerprintConfidence Float?  @default(0.5) // Confidence level (0-1) in device fingerprint
+  latitude                    Float? // Geographic latitude
+  longitude                   Float? // Geographic longitude
+  timezone                    String? // User's timezone
+  riskScore                   Float   @default(0) // Session risk score (0-1, higher = more suspicious)
+
+  // Access pattern tracking
+  lastIpChangeAt       DateTime? // When IP address last changed
+  accessCount          Int       @default(0) // Number of access events in current session
+  unusualActivityCount Int       @default(0) // Count of unusual activities detected
+
   // Session status
   isActive     Boolean  @default(true)
   expiresAt    DateTime
@@ -101,6 +114,10 @@ model UserSession {
 
   // Session configuration
   rememberMe Boolean @default(false)
+
+  // Invalidation tracking
+  invalidatedAt      DateTime? // When session was invalidated
+  invalidationReason String? // Reason for invalidation (suspicious_activity, ip_change, etc.)
 
   // Relations
   refreshTokens RefreshToken[]
@@ -112,6 +129,8 @@ model UserSession {
   @@index([sessionId])
   @@index([expiresAt])
   @@index([isActive])
+  @@index([riskScore])
+  @@index([browserFingerprintHash])
   @@map("user_sessions")
 }
 
@@ -304,4 +323,16 @@ enum AccessEvent {
   PROVIDER_UNLINKED
   IMPERSONATION_START
   IMPERSONATION_END
+  // Enhanced security events
+  SUSPICIOUS_ACTIVITY_DETECTED
+  IP_ADDRESS_CHANGED
+  DEVICE_FINGERPRINT_CHANGED
+  GEOLOCATION_CHANGED
+  UNUSUAL_ACCESS_PATTERN
+  SESSION_CONCURRENCY_LIMIT_EXCEEDED
+  SESSION_RISK_SCORE_INCREASED
+  SECURITY_ALERT_TRIGGERED
+  DEVICE_FINGERPRINT_CAPTURED
+  SESSION_ACTIVITY_MONITORED
+  ACCOUNT_SECURITY_UPDATED
 }

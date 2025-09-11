@@ -1513,9 +1513,28 @@ export class AuthController {
   async getActiveSessions(@User('id') userId: string): Promise<ApiResponse> {
     try {
       const sessions = await this.authService.getActiveSessions(userId);
+
+      // Enhance session data with security information
+      const enhancedSessions = sessions.map((session) => ({
+        ...session,
+        riskLevel:
+          (session.riskScore || 0) >= 0.7
+            ? 'HIGH'
+            : (session.riskScore || 0) >= 0.3
+              ? 'MEDIUM'
+              : 'LOW',
+        securityStatus: session.invalidatedAt
+          ? 'INVALIDATED'
+          : !session.isActive
+            ? 'INACTIVE'
+            : 'ACTIVE',
+        hasDeviceInfo: !!(session.browserFingerprintHash || session.deviceInfo),
+        hasLocationInfo: !!session.location,
+      }));
+
       return this.createSuccessResponse(
         'Active sessions retrieved successfully',
-        sessions,
+        enhancedSessions,
       );
     } catch (error) {
       this.logger.error('Failed to get active sessions:', error.message);
@@ -1605,6 +1624,338 @@ export class AuthController {
           'Failed to invalidate other sessions',
           'SESSION_ERROR',
           'INVALIDATE_OTHERS_FAILED',
+        ),
+      );
+    }
+  }
+
+  // ========== ENHANCED SESSION MANAGEMENT ==========
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Get('sessions/health')
+  @ApiOperation({
+    summary: 'Get session health and security status',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Session health retrieved successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Session health retrieved successfully',
+        data: {
+          totalSessions: 3,
+          activeSessions: 2,
+          riskScore: 0.2,
+          suspiciousActivities: 0,
+          lastActivity: '2023-12-01T12:00:00.000Z',
+          recommendations: ['Consider enabling 2FA for additional security'],
+        },
+      },
+    },
+  })
+  async getSessionHealth(@User('id') userId: string): Promise<ApiResponse> {
+    try {
+      const sessions = await this.authService.getActiveSessions(userId);
+      const totalSessions = sessions.length;
+      const activeSessions = sessions.filter((s) => s.isActive).length;
+      const averageRiskScore =
+        sessions.reduce((sum, s) => sum + (s.riskScore || 0), 0) /
+        totalSessions;
+      const suspiciousActivities = sessions.reduce(
+        (sum, s) => sum + (s.unusualActivityCount || 0),
+        0,
+      );
+      const lastActivity =
+        sessions.length > 0 ? sessions[0].lastActivity : null;
+
+      const recommendations: string[] = [];
+      if (averageRiskScore > 0.5) {
+        recommendations.push(
+          'High risk detected - review recent login activity',
+        );
+      }
+      if (activeSessions > 3) {
+        recommendations.push('Multiple active sessions detected');
+      }
+      if (suspiciousActivities > 0) {
+        recommendations.push(
+          `${suspiciousActivities} suspicious activities detected`,
+        );
+      }
+
+      const healthData = {
+        totalSessions,
+        activeSessions,
+        riskScore: Math.round(averageRiskScore * 100) / 100,
+        suspiciousActivities,
+        lastActivity,
+        recommendations:
+          recommendations.length > 0
+            ? recommendations
+            : ['Account security is good'],
+      };
+
+      return this.createSuccessResponse(
+        'Session health retrieved successfully',
+        healthData,
+      );
+    } catch (error) {
+      this.logger.error('Failed to get session health:', error.message);
+      throw new BadRequestException(
+        this.createErrorResponse(
+          'Failed to get session health',
+          'SESSION_ERROR',
+          'HEALTH_CHECK_FAILED',
+        ),
+      );
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Delete('sessions/revoke-suspicious')
+  @ApiOperation({
+    summary: 'Revoke all sessions with high risk scores',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Suspicious sessions revoked successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Suspicious sessions revoked successfully',
+        data: {
+          revokedCount: 2,
+          remainingSessions: 1,
+        },
+      },
+    },
+  })
+  async revokeSuspiciousSessions(
+    @User('id') userId: string,
+    @User() user: any,
+  ): Promise<ApiResponse> {
+    try {
+      const sessions = await this.authService.getActiveSessions(userId);
+      const suspiciousSessions = sessions.filter(
+        (s) => (s.riskScore || 0) >= 0.7,
+      );
+      const currentSessionId = user.sessionId;
+
+      let revokedCount = 0;
+      for (const session of suspiciousSessions) {
+        // Don't revoke current session
+        if (session.sessionId !== currentSessionId) {
+          await this.authService.invalidateSession(userId, session.sessionId);
+          revokedCount++;
+        }
+      }
+
+      const remainingSessions =
+        await this.authService.getActiveSessions(userId);
+      const remainingCount = remainingSessions.length;
+
+      const result = {
+        revokedCount,
+        remainingSessions: remainingCount,
+      };
+
+      this.logger.log(
+        `User ${user.email} revoked ${revokedCount} suspicious sessions`,
+      );
+      return this.createSuccessResponse(
+        'Suspicious sessions revoked successfully',
+        result,
+      );
+    } catch (error) {
+      this.logger.error('Failed to revoke suspicious sessions:', error.message);
+      throw new BadRequestException(
+        this.createErrorResponse(
+          'Failed to revoke suspicious sessions',
+          'SESSION_ERROR',
+          'REVOKE_SUSPICIOUS_FAILED',
+        ),
+      );
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Delete('sessions/revoke-by-location')
+  @ApiOperation({
+    summary: 'Revoke sessions from specific geographic locations',
+  })
+  @ApiQuery({
+    name: 'locations',
+    description: 'Comma-separated list of locations to revoke sessions from',
+    required: true,
+    type: String,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Location-based sessions revoked successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Location-based sessions revoked successfully',
+        data: {
+          revokedCount: 1,
+          targetLocations: ['Unknown', 'New York, US'],
+        },
+      },
+    },
+  })
+  async revokeSessionsByLocation(
+    @User('id') userId: string,
+    @User() user: any,
+    @Query('locations') locationsQuery: string,
+  ): Promise<ApiResponse> {
+    try {
+      if (!locationsQuery) {
+        throw new BadRequestException('Locations parameter is required');
+      }
+
+      const targetLocations = locationsQuery
+        .split(',')
+        .map((loc) => loc.trim());
+      const sessions = await this.authService.getActiveSessions(userId);
+      const currentSessionId = user.sessionId;
+
+      let revokedCount = 0;
+      for (const session of sessions) {
+        // Don't revoke current session
+        if (session.sessionId !== currentSessionId && session.location) {
+          const sessionLocation = session.location.trim();
+          if (
+            targetLocations.some((target) => sessionLocation.includes(target))
+          ) {
+            await this.authService.invalidateSession(userId, session.sessionId);
+            revokedCount++;
+          }
+        }
+      }
+
+      const result = {
+        revokedCount,
+        targetLocations,
+      };
+
+      this.logger.log(
+        `User ${user.email} revoked ${revokedCount} sessions from locations: ${targetLocations.join(', ')}`,
+      );
+      return this.createSuccessResponse(
+        'Location-based sessions revoked successfully',
+        result,
+      );
+    } catch (error) {
+      this.logger.error(
+        'Failed to revoke location-based sessions:',
+        error.message,
+      );
+      throw new BadRequestException(
+        this.createErrorResponse(
+          'Failed to revoke location-based sessions',
+          'SESSION_ERROR',
+          'REVOKE_LOCATION_FAILED',
+        ),
+      );
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Get('sessions/security-report')
+  @ApiOperation({
+    summary: 'Get detailed security report for user sessions',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Security report retrieved successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Security report retrieved successfully',
+        data: {
+          summary: {
+            totalSessions: 5,
+            activeSessions: 3,
+            averageRiskScore: 0.15,
+            totalSuspiciousActivities: 2,
+          },
+          locations: ['Dhaka, Bangladesh', 'New York, US', 'London, UK'],
+          riskDistribution: {
+            low: 3,
+            medium: 1,
+            high: 1,
+          },
+          recentActivities: [
+            {
+              event: 'DEVICE_FINGERPRINT_CHANGED',
+              timestamp: '2023-12-01T12:00:00.000Z',
+              ipAddress: '192.168.1.1',
+            },
+          ],
+        },
+      },
+    },
+  })
+  async getSecurityReport(@User('id') userId: string): Promise<ApiResponse> {
+    try {
+      const sessions = await this.authService.getActiveSessions(userId);
+      const totalSessions = sessions.length;
+      const activeSessions = sessions.filter((s) => s.isActive).length;
+
+      const riskScores = sessions.map((s) => s.riskScore || 0);
+      const averageRiskScore =
+        riskScores.length > 0
+          ? riskScores.reduce((sum, score) => sum + score, 0) /
+            riskScores.length
+          : 0;
+
+      const totalSuspiciousActivities = sessions.reduce(
+        (sum, s) => sum + (s.unusualActivityCount || 0),
+        0,
+      );
+
+      const locations = [
+        ...new Set(sessions.map((s) => s.location).filter(Boolean)),
+      ];
+
+      const riskDistribution = {
+        low: sessions.filter((s) => (s.riskScore || 0) < 0.3).length,
+        medium: sessions.filter(
+          (s) => (s.riskScore || 0) >= 0.3 && (s.riskScore || 0) < 0.7,
+        ).length,
+        high: sessions.filter((s) => (s.riskScore || 0) >= 0.7).length,
+      };
+
+      const summary = {
+        totalSessions,
+        activeSessions,
+        averageRiskScore: Math.round(averageRiskScore * 100) / 100,
+        totalSuspiciousActivities,
+      };
+
+      const report = {
+        summary,
+        locations,
+        riskDistribution,
+        recentActivities: [], // Would need to fetch from access logs
+      };
+
+      return this.createSuccessResponse(
+        'Security report retrieved successfully',
+        report,
+      );
+    } catch (error) {
+      this.logger.error('Failed to get security report:', error.message);
+      throw new BadRequestException(
+        this.createErrorResponse(
+          'Failed to get security report',
+          'SESSION_ERROR',
+          'SECURITY_REPORT_FAILED',
         ),
       );
     }

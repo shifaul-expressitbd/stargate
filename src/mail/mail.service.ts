@@ -165,4 +165,145 @@ export class MailService {
       throw new Error('Password reset email sending failed');
     }
   }
+
+  async sendSecurityAlert(
+    email: string,
+    subject: string,
+    message: string,
+    details?: any,
+  ): Promise<void> {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Security Alert</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+          <h1 style="margin: 0; font-size: 28px;">Security Alert ⚠️</h1>
+        </div>
+
+        <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #e9ecef;">
+          <h2 style="color: #333; margin-top: 0;">${subject}</h2>
+          <p style="color: #666; font-size: 16px; line-height: 1.6;">
+            ${message}
+          </p>
+
+          ${
+            details
+              ? `
+          <div style="background: #fff; padding: 15px; border-radius: 5px; border-left: 4px solid #ff6b6b; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #333;">Details:</h3>
+            <pre style="color: #666; font-size: 14px; white-space: pre-wrap;">${JSON.stringify(details, null, 2)}</pre>
+          </div>
+          `
+              : ''
+          }
+
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${this.configService.get('FRONTEND_URL', 'http://localhost:5173')}/account/security"
+               style="background: #dc3545; color: white; padding: 15px 30px; text-decoration: none;
+                      border-radius: 5px; font-weight: bold; display: inline-block; font-size: 16px;">
+              Review Account Security
+            </a>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+
+          <p style="color: #999; font-size: 12px;">
+            🔒 If this wasn't you, please change your password immediately.<br>
+            💡 Need help? Contact our support team.<br>
+            📧 This is an automated security notification.
+          </p>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const mailOptions: EmailOptions = {
+      to: email,
+      subject: `🚨 ${subject} - StarGate Security`,
+      html,
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      this.logger.log(`✅ Security alert sent to ${email}`);
+    } catch (error) {
+      this.logger.error(
+        `❌ Failed to send security alert to ${email}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw new Error('Security alert email sending failed');
+    }
+  }
+
+  async sendSecuritySummary(
+    email: string,
+    subject: string,
+    summary: any,
+  ): Promise<void> {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Security Summary</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+          <h1 style="margin: 0; font-size: 28px;">Security Summary 📊</h1>
+        </div>
+
+        <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #e9ecef;">
+          <h2 style="color: #333; margin-top: 0;">${subject}</h2>
+
+          <div style="background: #fff; padding: 20px; border-radius: 5px; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #333;">Account Overview</h3>
+            <ul style="color: #666;">
+              <li><strong>Active Sessions:</strong> ${summary.activeSessions || 0}</li>
+              <li><strong>Risk Score:</strong> ${(summary.riskScore * 100 || 0).toFixed(1)}%</li>
+              <li><strong>Locations:</strong> ${summary.locations?.join(', ') || 'None'}</li>
+              <li><strong>Last Activity:</strong> ${summary.lastActivity ? new Date(summary.lastActivity).toLocaleString() : 'None'}</li>
+            </ul>
+          </div>
+
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${this.configService.get('FRONTEND_URL', 'http://localhost:5173')}/account/sessions"
+               style="background: #007bff; color: white; padding: 15px 30px; text-decoration: none;
+                      border-radius: 5px; font-weight: bold; display: inline-block; font-size: 16px;">
+              Manage Sessions
+            </a>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+
+          <p style="color: #999; font-size: 12px;">
+            🔒 Keep your account secure by regularly reviewing your sessions.<br>
+            💡 Enable two-factor authentication for additional security.<br>
+            📧 This is an automated security summary.
+          </p>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const mailOptions: EmailOptions = {
+      to: email,
+      subject: `📊 ${subject} - StarGate Security`,
+      html,
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      this.logger.log(`✅ Security summary sent to ${email}`);
+    } catch (error) {
+      this.logger.error(
+        `❌ Failed to send security summary to ${email}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw new Error('Security summary email sending failed');
+    }
+  }
 }

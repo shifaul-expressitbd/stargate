@@ -18,16 +18,10 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
 
     // Build callback URL
     const baseUrl =
-      process.env.NODE_ENV === 'production'
+      configService.get<string>('NODE_ENV') === 'production'
         ? 'https://your-domain.com'
         : 'http://localhost:5555';
     const callbackURL = `${baseUrl}/api/auth/facebook/callback`;
-
-    console.log('Facebook OAuth Config:', {
-      appId: appId ? `${appId.substring(0, 5)}...` : 'NOT SET',
-      appSecret: appSecret ? 'SET' : 'NOT SET',
-      callbackURL,
-    });
 
     // Validate required configuration
     if (!appId || !appSecret) {

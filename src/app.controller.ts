@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Req } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AppService } from './app.service';
 import { Public } from './common/decorators/public.decorator';
@@ -22,5 +22,13 @@ export class AppController {
   @ApiResponse({ status: 200, description: 'Health check passed' })
   getHealth() {
     return this.appService.getHealth();
+  }
+
+  @Public()
+  @Get('csrf-token')
+  @ApiOperation({ summary: 'Get CSRF token' })
+  @ApiResponse({ status: 200, description: 'CSRF token retrieved' })
+  getCsrfToken(@Req() req: Request) {
+    return { token: (req as any).csrfToken() };
   }
 }

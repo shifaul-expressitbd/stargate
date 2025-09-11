@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AppService {
+  constructor(private configService: ConfigService) {}
+
   getHello(): string {
     return 'StarGate NestJS API is running! 🚀';
   }
@@ -11,8 +14,8 @@ export class AppService {
       status: 'ok',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      environment: process.env.NODE_ENV || 'development',
-      version: process.env.npm_package_version || '1.0.0',
+      environment: this.configService.get<string>('NODE_ENV', 'development'),
+      version: this.configService.get<string>('npm_package_version', '1.0.0'),
     };
   }
 }

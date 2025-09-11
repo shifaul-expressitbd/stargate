@@ -2,8 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Profile, Strategy } from 'passport-google-oauth20';
-import { AuthService } from '../auth.service';
 import { UrlConfigService } from '../../config/url.config';
+import { AuthService } from '../auth.service';
 
 @Injectable()
 export class GoogleGtmStrategy extends PassportStrategy(
@@ -51,13 +51,6 @@ export class GoogleGtmStrategy extends PassportStrategy(
       accessType: 'offline', // Request refresh token
       prompt: 'consent', // Force consent screen to ensure we get a refresh token
       passReqToCallback: false,
-    });
-
-    // Log configuration values (without sensitive data) for debugging
-    console.log('Google GTM OAuth Config:', {
-      clientId: clientId ? `${clientId.substring(0, 10)}...` : 'NOT SET',
-      clientSecret: clientSecret ? 'SET' : 'NOT SET',
-      callbackURL,
     });
 
     this.logger.log('Google GTM OAuth strategy initialized successfully');

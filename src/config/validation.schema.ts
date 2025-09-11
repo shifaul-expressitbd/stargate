@@ -10,10 +10,10 @@ export const validationSchema = Joi.object({
   GOOGLE_CLIENT_ID: Joi.string().required(),
   GOOGLE_CLIENT_SECRET: Joi.string().required(),
   GOOGLE_CALLBACK_URL: Joi.string().uri().required(),
-  // GTM ONLY
-  GOOGLE_GTM_CLIENT_ID: Joi.string().required(),
-  GOOGLE_GTM_CLIENT_SECRET: Joi.string().required(),
-  GOOGLE_GTM_CALLBACK_URL: Joi.string().uri().required(),
+  // GTM ONLY (optional for backward compatibility)
+  GOOGLE_GTM_CLIENT_ID: Joi.string().optional(),
+  GOOGLE_GTM_CLIENT_SECRET: Joi.string().optional(),
+  GOOGLE_GTM_CALLBACK_URL: Joi.string().uri().optional(),
   PORT: Joi.number().default(5555),
   DATABASE_URL: Joi.string().required(),
 
@@ -67,4 +67,51 @@ export const validationSchema = Joi.object({
   SMTP_PORT: Joi.number().default(587),
   SMTP_USER: Joi.string().email().optional(),
   SMTP_PASS: Joi.string().optional(),
+
+  // Logging Configuration
+  LOG_LEVEL: Joi.string()
+    .valid('error', 'warn', 'info', 'debug')
+    .default('info'),
+  LOG_CONSOLE: Joi.string().valid('true', 'false').default('true'),
+  LOG_DIR: Joi.string().default('logs'),
+
+  // Impersonation Configuration
+  IMPERSONATION_ALLOWED_ROLES: Joi.string().default(
+    'admin,crm_agent,developer',
+  ),
+  IMPERSONATION_TIMEOUT_MINUTES: Joi.number().min(1).max(1440).default(60),
+
+  // Multi-region API configurations
+  BASH_RUNNER_API_URL_INDIA: Joi.string().uri().optional(),
+  BASH_RUNNER_API_KEY_INDIA: Joi.string().length(128).optional(),
+  BASH_RUNNER_API_URL_US_EAST: Joi.string().uri().optional(),
+  BASH_RUNNER_API_KEY_US_EAST: Joi.string().length(128).optional(),
+  BASH_RUNNER_API_URL_US_WEST: Joi.string().uri().optional(),
+  BASH_RUNNER_API_KEY_US_WEST: Joi.string().length(128).optional(),
+  BASH_RUNNER_API_URL_EUROPE: Joi.string().uri().optional(),
+  BASH_RUNNER_API_KEY_EUROPE: Joi.string().length(128).optional(),
+
+  // Secret rotation configuration
+  SECRET_ROTATION_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  SECRET_ROTATION_INTERVAL_HOURS: Joi.number().min(1).max(8760).default(168), // 7 days
+  SECRET_ROTATION_GRACE_PERIOD_MINUTES: Joi.number()
+    .min(1)
+    .max(1440)
+    .default(60),
+
+  // Audit logging configuration
+  AUDIT_LOG_ENABLED: Joi.string().valid('true', 'false').default('true'),
+  AUDIT_LOG_LEVEL: Joi.string()
+    .valid('error', 'warn', 'info', 'debug')
+    .default('info'),
+
+  // Session security configuration
+  MAX_CONCURRENT_SESSIONS: Joi.number().min(1).max(50).default(5),
+  SESSION_RISK_THRESHOLD: Joi.number().min(0).max(1).default(0.7),
+  ENABLE_DEVICE_FINGERPRINTING: Joi.string()
+    .valid('true', 'false')
+    .default('true'),
+  ENABLE_GEOLOCATION_TRACKING: Joi.string()
+    .valid('true', 'false')
+    .default('true'),
 });

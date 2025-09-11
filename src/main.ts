@@ -6,14 +6,23 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
-import { SwaggerService } from './swagger/swagger.service';
+import { CsrfMiddleware } from './common/middleware/csrf.middleware';
 import { UrlConfigService } from './config/url.config';
+import { SwaggerService } from './swagger/swagger.service';
+import { LoggerService } from './utils/logger/logger.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Apply CSRF middleware
+  const csrfMiddleware = app.get(CsrfMiddleware);
+  app.use((req, res, next) => csrfMiddleware.use(req, res, next));
+
   // Set global prefix
   app.setGlobalPrefix('api');
+
+  // Get config service
+  const configService = app.get(ConfigService);
 
   // Global pipes
   app.useGlobalPipes(
@@ -32,12 +41,11 @@ async function bootstrap() {
 
   // Global interceptors
   app.useGlobalInterceptors(
-    new LoggingInterceptor(),
+    new LoggingInterceptor(configService),
     new ResponseInterceptor(),
   );
 
   // CORS
-  const configService = app.get(ConfigService);
   const urlConfigService = new UrlConfigService(configService);
   const corsOrigins = urlConfigService.getCorsOrigins();
 
@@ -60,8 +68,15 @@ async function bootstrap() {
   const port = configService.get('port', 5555);
   await app.listen(port);
 
-  console.log(`🚀 Application is running on: http://localhost:${port}`);
-  console.log(`🚀 Swagger is running on: http://localhost:${port}/api/docs`);
+  const logger = app.get(LoggerService);
+  logger.info(
+    `🚀 Application is running on: http://localhost:${port}`,
+    'Application',
+  );
+  logger.info(
+    `🚀 Swagger is running on: http://localhost:${port}/api/docs`,
+    'Application',
+  );
 }
 
 bootstrap();

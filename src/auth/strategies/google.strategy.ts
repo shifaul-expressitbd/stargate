@@ -3,8 +3,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Profile, Strategy } from 'passport-google-oauth20';
-import { AuthService } from '../auth.service';
 import { UrlConfigService } from '../../config/url.config';
+import { AuthService } from '../auth.service';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
@@ -35,21 +35,10 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       clientID: clientId,
       clientSecret: clientSecret,
       callbackURL,
-      scope: [
-        'email',
-        'profile',
-        'openid',
-      ],
+      scope: ['email', 'profile', 'openid'],
       accessType: 'offline', // Request refresh token
       prompt: 'consent', // Force consent screen to ensure we get a refresh token
       passReqToCallback: false, // Changed to false for simpler validation
-    });
-
-    // Log configuration values (without sensitive data) for debugging
-    console.log('Google OAuth Config:', {
-      clientId: clientId ? `${clientId.substring(0, 10)}...` : 'NOT SET',
-      clientSecret: clientSecret ? 'SET' : 'NOT SET',
-      callbackURL,
     });
 
     this.logger.log('Google OAuth strategy initialized successfully');
