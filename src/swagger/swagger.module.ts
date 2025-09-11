@@ -28,10 +28,25 @@ export class SwaggerService implements OnModuleInit {
     });
 
     const document = NestSwaggerModule.createDocument(this.app, config.build());
+
+    // Add tag groups to force ordering in Swagger UI
+    if (SWAGGER_CONFIG['x-tagGroups']) {
+      document['x-tagGroups'] = SWAGGER_CONFIG['x-tagGroups'];
+    }
+
+    // Custom tag sorter that respects the order in SWAGGER_CONFIG.tags
+    const tagOrder = SWAGGER_CONFIG.tags.map((tag) => tag.name);
+
     NestSwaggerModule.setup('api/docs', this.app, document, {
       swaggerOptions: {
         persistAuthorization: true,
-        tagsSorter: 'alpha',
+        tagsSorter: (a: string, b: string) => {
+          const indexA = tagOrder.indexOf(a);
+          const indexB = tagOrder.indexOf(b);
+          if (indexA === -1) return 1; // Unknown tags go to the end
+          if (indexB === -1) return -1;
+          return indexA - indexB;
+        },
         operationsSorter: 'alpha',
         security: [{ 'JWT-auth': [] }],
       },

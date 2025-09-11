@@ -8,12 +8,63 @@ export const SWAGGER_CONFIG = {
   version: '1.0.0',
   tags: [
     {
+      name: 'Application',
+      description: 'General application endpoints',
+    },
+    {
       name: 'Authentication',
       description: 'User authentication and authorization',
     },
+    {
+      name: 'OAuth Authentication',
+      description: 'OAuth-based authentication methods',
+    },
+    {
+      name: 'Two-Factor Authentication',
+      description: 'Two-factor authentication operations',
+    },
+    {
+      name: 'Session Management',
+      description: 'Session handling and management',
+    },
+    {
+      name: 'SGTM Regions',
+      description: 'Server-side Google Tag Manager regions management',
+    },
+    {
+      name: 'sGTM-containers',
+      description: 'Server-side Google Tag Manager containers management',
+    },
+    {
+      name: 'Google Tag Manager',
+      description: 'Google Tag Manager operations',
+    },
     { name: 'Users', description: 'User management' },
     { name: 'Impersonation', description: 'User impersonation management' },
-    { name: 'Google Tag Manager', description: 'Google Tag Manager operations' },
+  ],
+  // Force tag order with OpenAPI extensions
+  'x-tagGroups': [
+    {
+      name: 'Core Application',
+      tags: ['Application'],
+    },
+    {
+      name: 'Authentication',
+      tags: [
+        'Authentication',
+        'OAuth Authentication',
+        'Two-Factor Authentication',
+        'Session Management',
+      ],
+    },
+    {
+      name: 'Google Tag Manager',
+      tags: ['SGTM Regions', 'sGTM-containers', 'Google Tag Manager'],
+    },
+    {
+      name: 'User Management',
+      tags: ['Users', 'Impersonation'],
+    },
   ],
 };
 
@@ -45,94 +96,77 @@ export function createSwaggerConfig() {
       'refresh-token',
     )
 
-    // ✅ Impersonation Access Token Scheme
-    // .addBearerAuth(
-    //   {
-    //     type: 'http',
-    //     scheme: 'bearer',
-    //     bearerFormat: 'JWT',
-    //     description: 'Enter impersonation **access token**',
-    //   },
-    //   'impersonate-access-token',
-    // )
-
-    // ✅ Impersonation Refresh Token Scheme
-    // .addBearerAuth(
-    //   {
-    //     type: 'http',
-    //     scheme: 'bearer',
-    //     bearerFormat: 'JWT',
-    //     description: 'Enter impersonation **refresh token**',
-    //   },
-    //   'impersonate-refresh-token',
-    // )
-    // ✅ Permission Token Scheme (for GTM access)
     .addBearerAuth(
       {
         type: 'http',
         scheme: 'bearer',
         bearerFormat: 'JWT',
-        description: 'Enter your **permission token** (obtained from /api/auth/google-gtm/permission-token)',
+        description:
+          'Enter your **permission token** (obtained from /api/auth/google-gtm/permission-token)',
       },
       'permission-token',
     )
 
-    // ✅ Google OAuth
-    .addOAuth2(
-      {
-        type: 'oauth2',
-        description: 'Google OAuth 2.0',
-        flows: {
-          authorizationCode: {
-            authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-            tokenUrl: 'https://oauth2.googleapis.com/token',
-            scopes: {
-              openid: 'OpenID Connect',
-              email: 'View your email address',
-              profile: 'View your basic profile info',
-            },
-          },
-        },
-      },
-      'Google OAuth',
-    )
-    // ✅ Facebook OAuth
-    .addOAuth2(
-      {
-        type: 'oauth2',
-        description: 'Facebook OAuth 2.0',
-        flows: {
-          authorizationCode: {
-            authorizationUrl: 'https://www.facebook.com/v12.0/dialog/oauth',
-            tokenUrl: 'https://graph.facebook.com/v12.0/oauth/access_token',
-            scopes: {
-              email: 'View your email address',
-              public_profile: 'View your basic profile info',
-            },
-          },
-        },
-      },
-      'Facebook OAuth',
-    )
+    // Add tag groups to force order in Swagger UI
+    .addServer('http://localhost:5555')
+    .setExternalDoc('API Documentation', 'http://localhost:5555/api/docs');
 
-    // ✅ GitHub OAuth
-    .addOAuth2(
-      {
-        type: 'oauth2',
-        description: 'GitHub OAuth 2.0',
-        flows: {
-          authorizationCode: {
-            authorizationUrl: 'https://github.com/login/oauth/authorize',
-            tokenUrl: 'https://github.com/login/oauth/access_token',
-            scopes: {
-              'user:email': 'View your email address',
-              'read:user': 'View your basic profile info',
-            },
-          },
-        },
-      },
-      'GitHub OAuth',
-    );
+  // ✅ Google OAuth
+  // .addOAuth2(
+  //   {
+  //     type: 'oauth2',
+  //     description: 'Google OAuth 2.0',
+  //     flows: {
+  //       authorizationCode: {
+  //         authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+  //         tokenUrl: 'https://oauth2.googleapis.com/token',
+  //         scopes: {
+  //           openid: 'OpenID Connect',
+  //           email: 'View your email address',
+  //           profile: 'View your basic profile info',
+  //         },
+  //       },
+  //     },
+  //   },
+  //   'Google OAuth',
+  // )
+  // ✅ Facebook OAuth
+  // .addOAuth2(
+  //   {
+  //     type: 'oauth2',
+  //     description: 'Facebook OAuth 2.0',
+  //     flows: {
+  //       authorizationCode: {
+  //         authorizationUrl: 'https://www.facebook.com/v12.0/dialog/oauth',
+  //         tokenUrl: 'https://graph.facebook.com/v12.0/oauth/access_token',
+  //         scopes: {
+  //           email: 'View your email address',
+  //           public_profile: 'View your basic profile info',
+  //         },
+  //       },
+  //     },
+  //   },
+  //   'Facebook OAuth',
+  // )
+
+  // ✅ GitHub OAuth
+  // .addOAuth2(
+  //   {
+  //     type: 'oauth2',
+  //     description: 'GitHub OAuth 2.0',
+  //     flows: {
+  //       authorizationCode: {
+  //         authorizationUrl: 'https://github.com/login/oauth/authorize',
+  //         tokenUrl: 'https://github.com/login/oauth/access_token',
+  //         scopes: {
+  //           'user:email': 'View your email address',
+  //           'read:user': 'View your basic profile info',
+  //         },
+  //       },
+  //     },
+  //   },
+  //   'GitHub OAuth',
+  // );
 
   return config;
 }
