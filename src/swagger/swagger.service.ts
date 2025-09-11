@@ -62,11 +62,13 @@ export class SwaggerService implements OnModuleInit {
             'OAuth Authentication',
             'Two-Factor Authentication',
             'Session Management',
-            'SGTM Regions',
-            'sGTM-containers',
-            'Google Tag Manager',
             'Users',
             'Impersonation',
+            'sGTM-Regions',
+            'sGTM-Containers',
+            'Google Tag Manager',
+            'mCAPI-Regions',
+            'mCAPI-Containers',
           ];
 
           const indexA = tagOrder.indexOf(a);

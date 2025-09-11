@@ -26,7 +26,7 @@ import { CreateSgtmContainerDto } from './dto/sgtm-container.dto';
 import { UpdateSgtmContainerConfigDto } from './dto/update-sgtm-container-config.dto';
 import { SgtmContainerService } from './sgtm-container.service';
 
-@ApiTags('sGTM-containers')
+@ApiTags('sGTM-Containers')
 @ApiExtraModels(CreateSgtmContainerDto, UpdateSgtmContainerConfigDto)
 @Controller('sgtm-containers')
 @UseGuards(JwtAuthGuard)

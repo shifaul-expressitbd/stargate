@@ -52,7 +52,7 @@ export class SgtmContainerService {
         status: ContainerStatus.PENDING,
         subdomain: dto.subdomain,
         config: dto.config,
-        region: region,
+        regionKey: region,
       },
     });
 
@@ -227,11 +227,11 @@ export class SgtmContainerService {
     try {
       // Get region config
       const regionConfig = await this.sgtmRegionService.findByKey(
-        container.region,
+        container.regionKey,
       );
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
         this.logger.warn(
-          `Region ${container.region} not configured properly, returning cached data`,
+          `Region ${container.regionKey} not configured properly, returning cached data`,
         );
         return container;
       }
@@ -254,15 +254,17 @@ export class SgtmContainerService {
 
         if (!healthResponse.data || healthResponse.data.status !== 'healthy') {
           this.logger.warn(
-            `Region ${container.region} API server is not healthy, returning cached data`,
+            `Region ${container.regionKey} API server is not healthy, returning cached data`,
           );
           return container;
         }
 
-        this.logger.debug(`Health check passed for region ${container.region}`);
+        this.logger.debug(
+          `Health check passed for region ${container.regionKey}`,
+        );
       } catch (healthError) {
         this.logger.warn(
-          `Health check failed for region ${container.region}: ${healthError.message}, returning cached data`,
+          `Health check failed for region ${container.regionKey}: ${healthError.message}, returning cached data`,
         );
         return container;
       }
@@ -396,7 +398,7 @@ export class SgtmContainerService {
     try {
       // Get region config - assume all user's containers are in the same region for simplicity
       // If you have containers in multiple regions, you might need to group by region
-      const region = activeContainers[0]?.region || DEFAULT_REGION;
+      const region = activeContainers[0]?.regionKey || DEFAULT_REGION;
 
       const regionConfig = await this.sgtmRegionService.findByKey(region);
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
@@ -583,11 +585,11 @@ export class SgtmContainerService {
     try {
       // Get region config
       const regionConfig = await this.sgtmRegionService.findByKey(
-        container.region,
+        container.regionKey,
       );
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
         throw new BadRequestException(
-          `Region ${container.region} not configured properly`,
+          `Region ${container.regionKey} not configured properly`,
         );
       }
 
@@ -609,17 +611,19 @@ export class SgtmContainerService {
 
         if (!healthResponse.data || healthResponse.data.status !== 'healthy') {
           throw new BadRequestException(
-            `Region ${container.region} API server is not healthy`,
+            `Region ${container.regionKey} API server is not healthy`,
           );
         }
 
-        this.logger.debug(`Health check passed for region ${container.region}`);
+        this.logger.debug(
+          `Health check passed for region ${container.regionKey}`,
+        );
       } catch (healthError) {
         this.logger.error(
-          `Health check failed for region ${container.region}: ${healthError.message}`,
+          `Health check failed for region ${container.regionKey}: ${healthError.message}`,
         );
         throw new BadRequestException(
-          `Region ${container.region} API server is not available`,
+          `Region ${container.regionKey} API server is not available`,
         );
       }
 
@@ -708,11 +712,11 @@ export class SgtmContainerService {
     try {
       // Get region config
       const regionConfig = await this.sgtmRegionService.findByKey(
-        container.region,
+        container.regionKey,
       );
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
         throw new BadRequestException(
-          `Region ${container.region} not configured properly`,
+          `Region ${container.regionKey} not configured properly`,
         );
       }
 
@@ -734,17 +738,19 @@ export class SgtmContainerService {
 
         if (!healthResponse.data || healthResponse.data.status !== 'healthy') {
           throw new BadRequestException(
-            `Region ${container.region} API server is not healthy`,
+            `Region ${container.regionKey} API server is not healthy`,
           );
         }
 
-        this.logger.debug(`Health check passed for region ${container.region}`);
+        this.logger.debug(
+          `Health check passed for region ${container.regionKey}`,
+        );
       } catch (healthError) {
         this.logger.error(
-          `Health check failed for region ${container.region}: ${healthError.message}`,
+          `Health check failed for region ${container.regionKey}: ${healthError.message}`,
         );
         throw new BadRequestException(
-          `Region ${container.region} API server is not available`,
+          `Region ${container.regionKey} API server is not available`,
         );
       }
 
@@ -829,11 +835,11 @@ export class SgtmContainerService {
     try {
       // Get region config
       const regionConfig = await this.sgtmRegionService.findByKey(
-        container.region,
+        container.regionKey,
       );
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
         throw new BadRequestException(
-          `Region ${container.region} not configured properly`,
+          `Region ${container.regionKey} not configured properly`,
         );
       }
 
@@ -855,17 +861,19 @@ export class SgtmContainerService {
 
         if (!healthResponse.data || healthResponse.data.status !== 'healthy') {
           throw new BadRequestException(
-            `Region ${container.region} API server is not healthy`,
+            `Region ${container.regionKey} API server is not healthy`,
           );
         }
 
-        this.logger.debug(`Health check passed for region ${container.region}`);
+        this.logger.debug(
+          `Health check passed for region ${container.regionKey}`,
+        );
       } catch (healthError) {
         this.logger.error(
-          `Health check failed for region ${container.region}: ${healthError.message}`,
+          `Health check failed for region ${container.regionKey}: ${healthError.message}`,
         );
         throw new BadRequestException(
-          `Region ${container.region} API server is not available`,
+          `Region ${container.regionKey} API server is not available`,
         );
       }
 
@@ -945,11 +953,11 @@ export class SgtmContainerService {
     try {
       // Get region config
       const regionConfig = await this.sgtmRegionService.findByKey(
-        container.region,
+        container.regionKey,
       );
       if (!regionConfig || !regionConfig.apiUrl || !regionConfig.apiKey) {
         throw new BadRequestException(
-          `Region ${container.region} not configured properly`,
+          `Region ${container.regionKey} not configured properly`,
         );
       }
 
@@ -971,17 +979,19 @@ export class SgtmContainerService {
 
         if (!healthResponse.data || healthResponse.data.status !== 'healthy') {
           throw new BadRequestException(
-            `Region ${container.region} API server is not healthy`,
+            `Region ${container.regionKey} API server is not healthy`,
           );
         }
 
-        this.logger.debug(`Health check passed for region ${container.region}`);
+        this.logger.debug(
+          `Health check passed for region ${container.regionKey}`,
+        );
       } catch (healthError) {
         this.logger.error(
-          `Health check failed for region ${container.region}: ${healthError.message}`,
+          `Health check failed for region ${container.regionKey}: ${healthError.message}`,
         );
         throw new BadRequestException(
-          `Region ${container.region} API server is not available`,
+          `Region ${container.regionKey} API server is not available`,
         );
       }
 

@@ -11,6 +11,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import * as bcrypt from 'bcryptjs';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { LoggerService } from 'src/utils/logger/logger.service';
 import { PrismaService } from '../database/prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
@@ -127,6 +128,7 @@ describe('AuthService', () => {
   let configService: ConfigService;
   let mailService: MailService;
   let prismaService: PrismaService;
+  let loggerService: LoggerService;
 
   // Mock implementations
   const mockUsersService = {
@@ -184,6 +186,14 @@ describe('AuthService', () => {
     },
   };
 
+  const mockLoggerService = {
+    log: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    verbose: jest.fn(),
+  };
+
   const setupConfigMock = () => {
     mockConfigService.get.mockImplementation((key: string) => {
       switch (key) {
@@ -224,6 +234,7 @@ describe('AuthService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: MailService, useValue: mockMailService },
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: LoggerService, useValue: mockLoggerService },
       ],
     }).compile();
 
@@ -233,6 +244,7 @@ describe('AuthService', () => {
     configService = module.get<ConfigService>(ConfigService);
     mailService = module.get<MailService>(MailService);
     prismaService = module.get<PrismaService>(PrismaService);
+    loggerService = module.get<LoggerService>(LoggerService);
 
     console.log('🔧 [Test Setup] AuthService initialized successfully');
   });
@@ -470,7 +482,7 @@ describe('AuthService', () => {
     it('should login with valid 2FA code', async () => {
       const dto: LoginWithTwoFactorDto = {
         tempToken: 'valid-temp-token',
-        code: '123456',
+        totpCode: '123456',
       };
 
       const mockUser = {
@@ -504,7 +516,7 @@ describe('AuthService', () => {
     it('should throw error for invalid 2FA code', async () => {
       const dto: LoginWithTwoFactorDto = {
         tempToken: 'valid-temp-token',
-        code: 'wrong-code',
+        totpCode: 'wrong-code',
       };
 
       const mockUser = {
@@ -1697,6 +1709,7 @@ describe('AuthService', () => {
               configService as any,
               mailService as any,
               prismaService as any,
+              loggerService,
             ),
         ).toThrow('JWT_SECRET is missing or too short');
       } finally {

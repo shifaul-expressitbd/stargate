@@ -32,7 +32,7 @@ import {
 } from './dto/sgtm-region.dto';
 import { SgtmRegionService } from './sgtm-region.service';
 
-@ApiTags('SGTM Regions')
+@ApiTags('sGTM-Regions')
 @Controller('sgtm-regions')
 @UseGuards(JwtAuthGuard)
 export class SgtmRegionController {

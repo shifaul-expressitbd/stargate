@@ -32,7 +32,7 @@ import {
 } from './dto/meta-capi-region.dto';
 import { MetaCapiRegionService } from './meta-capi-region.service';
 
-@ApiTags('Meta CAPI Regions')
+@ApiTags('mCAPI-Regions')
 @Controller('api/meta-capi-regions')
 @UseGuards(JwtAuthGuard)
 export class MetaCapiRegionController {

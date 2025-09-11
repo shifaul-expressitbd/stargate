@@ -27,20 +27,28 @@ export const SWAGGER_CONFIG = {
       name: 'Session Management',
       description: 'Session handling and management',
     },
+    { name: 'Users', description: 'User management' },
+    { name: 'Impersonation', description: 'User impersonation management' },
     {
-      name: 'SGTM Regions',
+      name: 'sGTM-Regions',
       description: 'Server-side Google Tag Manager regions management',
     },
     {
-      name: 'sGTM-containers',
+      name: 'sGTM-Containers',
       description: 'Server-side Google Tag Manager containers management',
     },
     {
       name: 'Google Tag Manager',
       description: 'Google Tag Manager operations',
     },
-    { name: 'Users', description: 'User management' },
-    { name: 'Impersonation', description: 'User impersonation management' },
+    {
+      name: 'mCAPI-Regions',
+      description: 'Meta Conversion API regions management',
+    },
+    {
+      name: 'mCAPI-Containers',
+      description: 'Meta Conversion API containers management',
+    },
   ],
   // Force tag order with OpenAPI extensions
   'x-tagGroups': [
@@ -58,12 +66,16 @@ export const SWAGGER_CONFIG = {
       ],
     },
     {
-      name: 'Google Tag Manager',
-      tags: ['SGTM Regions', 'sGTM-containers', 'Google Tag Manager'],
-    },
-    {
       name: 'User Management',
       tags: ['Users', 'Impersonation'],
+    },
+    {
+      name: 'Google Tag Manager',
+      tags: ['sGTM-Regions', 'sGTM-Containers', 'Google Tag Manager'],
+    },
+    {
+      name: 'Meta Conversion API',
+      tags: ['mCAPI-Regions', 'mCAPI-Containers'],
     },
   ],
 };

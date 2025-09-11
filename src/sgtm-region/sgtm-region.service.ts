@@ -130,7 +130,7 @@ export class SgtmRegionService {
 
     // Check if any containers are using this region
     const containerCount = await this.prisma.sgtmContainer.count({
-      where: { region: key },
+      where: { regionKey: key },
     });
 
     if (containerCount > 0) {
