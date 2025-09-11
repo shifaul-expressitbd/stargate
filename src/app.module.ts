@@ -18,6 +18,8 @@ import { validationSchema } from './config/validation.schema';
 import { DatabaseModule } from './database/database.module';
 import { GoogleTagManagerModule } from './google-tag-manager/google-tag-manager.module';
 import { MailModule } from './mail/mail.module';
+import { MetaCapiContainerModule } from './meta-capi-container/meta-capi-container.module';
+import { MetaCapiRegionModule } from './meta-capi-region/meta-capi-region.module';
 import { SgtmContainerModule } from './sgtm-container/sgtm-container.module';
 import { SgtmRegionModule } from './sgtm-region/sgtm-region.module';
 import { UsersModule } from './users/users.module';
@@ -65,6 +67,8 @@ import { LoggerService } from './utils/logger/logger.service';
     UsersModule,
     SgtmContainerModule,
     SgtmRegionModule,
+    MetaCapiContainerModule,
+    MetaCapiRegionModule,
     GoogleTagManagerModule,
     MailModule,
     AdminModule,

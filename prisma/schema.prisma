@@ -173,10 +173,12 @@ model SgtmContainer {
   status      ContainerStatus @default(CREATED)
   subdomain   String? // e.g., tags.bikobazaar.xyz
   config      String? // base64-encoded config string
-  region      String          @default("india") // Region where container is deployed
+  regionKey   String
+  region      SgtmRegion      @relation(fields: [regionKey], references: [key])
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
+  @@index([regionKey])
   @@map("sgtm_containers")
 }
 
@@ -190,11 +192,13 @@ model MetaCapiContainer {
   userId      String
   user        User            @relation("UserMetaCapiContainers", fields: [userId], references: [id], map: "meta_capi_containers_user_id_fkey")
   status      ContainerStatus @default(CREATED)
-  region      String          @default("india") // Region where container is deployed
+  regionKey   String
+  region      MetaCapiRegion  @relation(fields: [regionKey], references: [key])
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   User        User            @relation(fields: [userId], references: [id])
 
+  @@index([regionKey])
   @@map("meta_capi_containers")
 }
 
@@ -210,7 +214,36 @@ model SgtmRegion {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // Relations
+  containers SgtmContainer[]
+
+  @@index([key])
+  @@index([isActive])
+  @@index([isDefault])
   @@map("sgtm_regions")
+}
+
+model MetaCapiRegion {
+  id          String   @id @default(cuid())
+  key         String   @unique // e.g., 'us', 'eu', 'asia'
+  name        String // Display name e.g., 'US', 'EU'
+  baseUrl     String // Base API URL for Conversions API
+  appId       String // Facebook App ID
+  appSecret   String // Facebook App Secret (encrypted)
+  apiVersion  String   @default("v16.0") // API version
+  isActive    Boolean  @default(true) // Whether region is available
+  isDefault   Boolean  @default(false) // Whether this is the default region
+  description String? // Optional description
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  containers MetaCapiContainer[]
+
+  @@index([key])
+  @@index([isActive])
+  @@index([isDefault])
+  @@map("meta_capi_regions")
 }
 
 enum ContainerStatus {
