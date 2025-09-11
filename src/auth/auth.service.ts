@@ -144,7 +144,7 @@ export class AuthService {
   private readonly GTM_TOKEN_EXPIRY = '15m';
 
   private readonly totpOptions = {
-    window: 2,
+    window: 3,
     step: 30,
   };
 
@@ -1191,6 +1191,58 @@ export class AuthService {
     return result;
   }
 
+  private generateTOTPCode(secret: string, timeCounter: number): string {
+    try {
+      const crypto = require('crypto');
+      const buffer = Buffer.allocUnsafe(8);
+      buffer.writeUInt32BE(0, 0);
+      buffer.writeUInt32BE(timeCounter, 4);
+
+      const key = this.base32Decode(secret);
+      const hmac = crypto.createHmac('sha1', key);
+      hmac.update(buffer);
+      const digest = hmac.digest();
+
+      const offset = digest[digest.length - 1] & 0x0f;
+
+      const code =
+        ((digest[offset] & 0x7f) << 24) |
+        ((digest[offset + 1] & 0xff) << 16) |
+        ((digest[offset + 2] & 0xff) << 8) |
+        (digest[offset + 3] & 0xff);
+
+      const finalCode = (code % 1000000).toString().padStart(6, '0');
+      this.logger.debug(`TOTP Code: ${finalCode} (time: ${timeCounter})`);
+
+      return finalCode;
+    } catch (error) {
+      return totp.generate(secret);
+    }
+  }
+
+  private base32Decode(encoded: string): Buffer {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let bits = 0;
+    let value = 0;
+    let index = 0;
+    const output = new Uint8Array((encoded.length * 5) >> 3);
+
+    for (const char of encoded.toUpperCase()) {
+      const idx = alphabet.indexOf(char);
+      if (idx === -1) continue;
+
+      value = (value << 5) | idx;
+      bits += 5;
+
+      if (bits >= 8) {
+        output[index++] = (value >>> (bits - 8)) & 255;
+        bits -= 8;
+      }
+    }
+
+    return Buffer.from(output.slice(0, index));
+  }
+
   async generateTwoFactorSecret(
     userId: string,
   ): Promise<TwoFactorGenerateResponse> {
@@ -1270,6 +1322,14 @@ export class AuthService {
       }
 
       const secret = user.twoFactorSecret;
+      const currentExpected = totp.generate(secret);
+      this.logger.debug(`Current expected code: ${currentExpected}`);
+      this.logger.debug(`Received code: ${cleanCode}`);
+
+      // Manual window check with logging
+      const currentTime = Math.floor(Date.now() / 1000);
+      const timeStep = 30;
+      const windowSize = 3;
       const isValid = totp.check(cleanCode, secret);
 
       if (isValid) {
@@ -1277,52 +1337,26 @@ export class AuthService {
         return true;
       }
 
-      const currentTime = Math.floor(Date.now() / 1000);
-      const timeStep = 30;
-      const windowSize = 3;
-
+      // Log what codes would be valid in the current window
+      this.logger.debug(`Checked time window: ±${windowSize * timeStep}s`);
       for (let i = -windowSize; i <= windowSize; i++) {
         const testTime = currentTime + i * timeStep;
-        try {
-          const timeBasedCode = this.generateTOTPCode(
-            secret,
-            Math.floor(testTime / timeStep),
-          );
-
-          if (timeBasedCode === cleanCode) {
-            this.logger.log(
-              `✅ 2FA code verified for user: ${user.email} (time offset: ${i * 30}s)`,
-            );
-            return true;
-          }
-        } catch (error) {
-          this.logger.debug(
-            `Error generating code for time offset ${i * 30}s:`,
-            error.message,
-          );
+        const testCounter = Math.floor(testTime / timeStep);
+        const testCode = this.generateTOTPCode(secret, testCounter);
+        this.logger.debug(`Expected code at offset ${i * timeStep}s: ${testCode} (time: ${new Date(testTime * 1000).toISOString()})`);
+        if (testCode === cleanCode) {
+          this.logger.log(`✅ 2FA code verified for user: ${user.email} at offset ${i * 30}s`);
+          return true;
         }
       }
 
-      const currentExpected = totp.generate(secret);
       const serverTime = new Date().toISOString();
       const serverTimestamp = Math.floor(Date.now() / 1000);
 
       this.logger.warn(`❌ No matching code found for user: ${user.email}`);
-      this.logger.debug(`Current expected code: ${currentExpected}`);
       this.logger.debug(`Received code: ${cleanCode}`);
       this.logger.debug(`Server time: ${serverTime} (${serverTimestamp})`);
-      this.logger.debug(`Checked time window: ${-windowSize * timeStep}s to +${windowSize * timeStep}s`);
-
-      // Log expected codes at different time offsets for debugging
-      for (let i = -windowSize; i <= windowSize; i++) {
-        const testTime = currentTime + i * timeStep;
-        try {
-          const testCode = this.generateTOTPCode(secret, Math.floor(testTime / timeStep));
-          this.logger.debug(`Expected code at offset ${i * timeStep}s: ${testCode} (time: ${new Date(testTime * 1000).toISOString()})`);
-        } catch (error) {
-          this.logger.debug(`Error calculating code for offset ${i * timeStep}s: ${error.message}`);
-        }
-      }
+      this.logger.debug(`Checked time window: ±${this.totpOptions.window * this.totpOptions.step}s`);
 
       // Provide debugging info in the warning
       this.logger.warn(`⏰ Time sync debugging for user ${userId}:`);
@@ -1340,57 +1374,6 @@ export class AuthService {
     }
   }
 
-  private generateTOTPCode(secret: string, timeCounter: number): string {
-    try {
-      const crypto = require('crypto');
-      const buffer = Buffer.allocUnsafe(8);
-      buffer.writeUInt32BE(0, 0);
-      buffer.writeUInt32BE(timeCounter, 4);
-
-      const key = this.base32Decode(secret);
-      const hmac = crypto.createHmac('sha1', key);
-      hmac.update(buffer);
-      const digest = hmac.digest();
-
-      const offset = digest[digest.length - 1] & 0x0f;
-
-      const code =
-        ((digest[offset] & 0x7f) << 24) |
-        ((digest[offset + 1] & 0xff) << 16) |
-        ((digest[offset + 2] & 0xff) << 8) |
-        (digest[offset + 3] & 0xff);
-
-      const finalCode = (code % 1000000).toString().padStart(6, '0');
-      this.logger.debug(`TOTP Code: ${finalCode} (time: ${timeCounter})`);
-
-      return finalCode;
-    } catch (error) {
-      return totp.generate(secret);
-    }
-  }
-
-  private base32Decode(encoded: string): Buffer {
-    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-    let bits = 0;
-    let value = 0;
-    let index = 0;
-    const output = new Uint8Array((encoded.length * 5) >> 3);
-
-    for (const char of encoded.toUpperCase()) {
-      const idx = alphabet.indexOf(char);
-      if (idx === -1) continue;
-
-      value = (value << 5) | idx;
-      bits += 5;
-
-      if (bits >= 8) {
-        output[index++] = (value >>> (bits - 8)) & 255;
-        bits -= 8;
-      }
-    }
-
-    return Buffer.from(output.slice(0, index));
-  }
 
   async enableTwoFactor(
     userId: string,
