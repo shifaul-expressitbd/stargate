@@ -1,42 +1,53 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Reflector } from '@nestjs/core';
+import { doubleCsrf } from 'csrf-csrf';
 import { NextFunction, Request, Response } from 'express';
-const csurf = require('csurf');
 
 @Injectable()
 export class CsrfMiddleware implements NestMiddleware {
   private csrfProtection: any;
+  private generateCsrfToken: any;
+  private secret: string;
 
-  constructor(
-    private reflector: Reflector,
-    private configService: ConfigService,
-  ) {
-    this.csrfProtection = csurf({
-      cookie: {
-        key: 'XSRF-TOKEN',
-        httpOnly: false, // Allow frontend to read the cookie
+  constructor(private configService: ConfigService) {
+    this.secret = this.configService.get<string>(
+      'CSRF_SECRET',
+      'super-secret-csrf-key',
+    );
+
+    const { doubleCsrfProtection, generateCsrfToken } = doubleCsrf({
+      getSecret: () => this.secret,
+      getSessionIdentifier: (req: Request) => req.ip || 'default-session',
+      cookieName: 'csrf-token',
+      cookieOptions: {
+        httpOnly: false,
         secure: this.configService.get<string>('NODE_ENV') === 'production',
         sameSite: 'strict',
       },
-      value: (req: Request) => {
-        // Support both header and body
-        return (
-          (req.headers['x-xsrf-token'] as string) ||
-          (req.headers['x-csrf-token'] as string) ||
-          req.body._csrf
-        );
-      },
     });
+
+    this.csrfProtection = doubleCsrfProtection;
+    this.generateCsrfToken = generateCsrfToken;
   }
 
   use(req: Request, res: Response, next: NextFunction): void {
-    // Skip CSRF for public routes (login, register, health, csrf-token)
+    // Handle CSRF token generation for the token endpoint
+    if (req.path === '/api/csrf-token') {
+      const token = this.generateCsrfToken(req, res);
+      // Set the token in a cookie
+      res.cookie('csrf-token', token, {
+        httpOnly: false,
+        secure: this.configService.get<string>('NODE_ENV') === 'production',
+        sameSite: 'strict',
+      });
+      return next();
+    }
+
+    // Skip CSRF for other public routes
     const publicPaths = [
       '/api/auth/login',
       '/api/auth/register',
       '/api/health',
-      '/api/csrf-token',
       '/api',
     ];
     if (
@@ -48,16 +59,9 @@ export class CsrfMiddleware implements NestMiddleware {
     }
 
     // Apply CSRF protection for state-changing operations
-    this.csrfProtection(req, res, (err?: any) => {
-      if (err) {
-        // Handle CSRF error
-        return res.status(403).json({
-          statusCode: 403,
-          message: 'Invalid CSRF token',
-          error: 'Forbidden',
-        });
-      }
-      next();
-    });
+    this.csrfProtection(req, res, next);
   }
+
+  // Token generation is handled by the middleware automatically
+  // The token is set in a cookie named 'csrf-token'
 }

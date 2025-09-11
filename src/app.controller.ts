@@ -29,6 +29,9 @@ export class AppController {
   @ApiOperation({ summary: 'Get CSRF token' })
   @ApiResponse({ status: 200, description: 'CSRF token retrieved' })
   getCsrfToken(@Req() req: Request) {
-    return { token: (req as any).csrfToken() };
+    // The CSRF token is automatically set in a cookie by the middleware
+    // Return the token from the cookie for convenience
+    const token = (req as any).cookies['csrf-token'];
+    return { token };
   }
 }
