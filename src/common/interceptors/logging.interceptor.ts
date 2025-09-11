@@ -15,6 +15,19 @@ export class LoggingInterceptor implements NestInterceptor {
 
   constructor(private configService: ConfigService) {}
 
+  private safeStringify(obj: any): string {
+    const seen = new WeakSet();
+    return JSON.stringify(obj, (key, value) => {
+      if (typeof value === 'object' && value !== null) {
+        if (seen.has(value)) {
+          return '[Circular Reference]';
+        }
+        seen.add(value);
+      }
+      return value;
+    });
+  }
+
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest();
     const { method, url, body, user } = request;
@@ -38,7 +51,8 @@ export class LoggingInterceptor implements NestInterceptor {
             `⬅️  ${method} ${url} - ${responseTime}ms - User: ${user?.id || 'anonymous'}`,
           );
           if (this.configService.get<string>('NODE_ENV') === 'development') {
-            this.logger.debug(`Response: ${JSON.stringify(data)}`);
+            // Use safe stringify to handle circular references
+            this.logger.debug(`Response: ${this.safeStringify(data)}`);
           }
         },
         error: (error) => {
