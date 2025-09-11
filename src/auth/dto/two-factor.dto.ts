@@ -3,10 +3,9 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsNotEmpty,
-  IsNumber,
   IsOptional,
   IsString,
-  Matches
+  Matches,
 } from 'class-validator';
 
 export class EnableTwoFactorDto {
@@ -17,16 +16,7 @@ export class EnableTwoFactorDto {
   @IsString()
   @IsNotEmpty()
   @Matches(/^\d{6}$/, { message: 'Code must be exactly 6 digits' })
-  code: string;
-
-  @ApiProperty({
-    example: true,
-    required: false,
-    description: 'Skip backup code generation (for recovery)',
-  })
-  @IsBoolean()
-  @IsOptional()
-  skipBackup?: boolean;
+  totpCode: string;
 }
 
 export class VerifyTwoFactorDto {
@@ -37,16 +27,7 @@ export class VerifyTwoFactorDto {
   @IsString()
   @IsNotEmpty()
   @Matches(/^\d{6}$/, { message: 'Code must be 6 digits' })
-  code: string;
-
-  @ApiProperty({
-    example: 1641785685000,
-    required: false,
-    description: 'Client-reported timestamp to help debug time sync issues (Unix timestamp in milliseconds)',
-  })
-  @IsNumber()
-  @IsOptional()
-  clientTimestamp?: number;
+  totpCode: string;
 }
 
 export class DisableTwoFactorDto {
@@ -57,9 +38,10 @@ export class DisableTwoFactorDto {
   @IsString()
   @IsNotEmpty()
   @Matches(/^\d{6}$/, { message: 'Code must be 6 digits' })
-  code: string;
+  totpCode: string;
 }
 
+// Keep the old DTO for backward compatibility
 export class LoginWithTwoFactorDto {
   @ApiProperty({
     example: '123456',
@@ -68,7 +50,7 @@ export class LoginWithTwoFactorDto {
   @IsString()
   @IsNotEmpty()
   @Matches(/^\d{6}$/, { message: 'Code must be 6 digits' })
-  code: string;
+  totpCode: string;
 
   @ApiProperty({
     example: 'eyJhbGciOi...',
@@ -78,17 +60,19 @@ export class LoginWithTwoFactorDto {
   @IsNotEmpty()
   tempToken: string;
 
-  @ApiProperty({
-    example: 1641785685000,
-    required: false,
-    description: 'Client-reported timestamp to help debug time sync issues (Unix timestamp in milliseconds)',
-  })
-  @IsNumber()
-  @IsOptional()
-  clientTimestamp?: number;
-
   @ApiProperty({ example: false, required: false })
   @IsBoolean()
   @IsOptional()
   rememberMe?: boolean;
+}
+
+export class GenerateBackupCodesDto {
+  @ApiProperty({
+    example: '123456',
+    description: 'TOTP code from authenticator app to verify identity',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\d{6}$/, { message: 'Code must be 6 digits' })
+  totpCode: string;
 }

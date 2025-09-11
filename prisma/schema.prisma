@@ -18,7 +18,6 @@ model User {
   isEmailVerified    Boolean         @default(false)
   emailVerifiedAt    DateTime?
   verificationToken  String?         @unique
-  refreshTokenHash   String?
   twoFactorSecret    String?
   resetToken         String?         @unique
   resetTokenExpires  DateTime?
@@ -35,11 +34,19 @@ model User {
   impersonationAuditsAsAdmin    ImpersonationAudit[]   @relation("ImpersonationAuditAsAdmin")
   impersonationAuditsAsTarget   ImpersonationAudit[]   @relation("ImpersonationAuditAsTarget")
 
+  // Relations for access logging
+  accessLogs AccessLog[] @relation("UserAccessLogs")
+
+  // Relations for Meta CAPI containers
+  metaCapiContainers MetaCapiContainer[] @relation("UserMetaCapiContainers")
+
   // Relations for multiple auth providers
   authProviders AuthProvider[]
 
   // Relations for session management
-  sessions UserSession[]
+  sessions          UserSession[]
+  MetaCapiContainer MetaCapiContainer[]
+  AccessLog         AccessLog[]
 
   @@map("users")
 }
@@ -154,6 +161,24 @@ model SgtmContainer {
   @@map("sgtm_containers")
 }
 
+model MetaCapiContainer {
+  id          String          @id @default(cuid())
+  name        String
+  fullName    String?
+  fbPixelId   String // Facebook Pixel ID
+  accessToken String // Facebook API Access Token
+  testCode    String? // Optional test code for Facebook API
+  userId      String
+  user        User            @relation("UserMetaCapiContainers", fields: [userId], references: [id], map: "meta_capi_containers_user_id_fkey")
+  status      ContainerStatus @default(CREATED)
+  region      String          @default("india") // Region where container is deployed
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  User        User            @relation(fields: [userId], references: [id])
+
+  @@map("meta_capi_containers")
+}
+
 model SgtmRegion {
   id          String   @id @default(cuid())
   key         String   @unique // e.g., 'india', 'us-east', 'us-west', 'europe'
@@ -230,4 +255,53 @@ model ImpersonationAudit {
   @@index([adminId, timestamp])
   @@index([targetId, timestamp])
   @@index([action, timestamp])
+}
+
+// Access Log for tracking authentication events
+model AccessLog {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("UserAccessLogs", fields: [userId], references: [id], onDelete: Cascade, map: "access_logs_user_id_fkey")
+
+  // Event details
+  event     AccessEvent
+  sessionId String? // Reference to user session if available
+  ipAddress String?
+  userAgent String?
+
+  // Additional context
+  location      String? // Geolocation data if available
+  deviceInfo    Json? // Device/browser information
+  success       Boolean @default(true) // Whether the event was successful
+  failureReason String? // Reason for failure if success=false
+
+  // Metadata
+  timestamp DateTime @default(now())
+  User      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([event])
+  @@index([timestamp])
+  @@index([userId, event])
+  @@map("access_logs")
+}
+
+enum AccessEvent {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  LOGOUT
+  TOKEN_REFRESH
+  PASSWORD_RESET_REQUEST
+  PASSWORD_RESET_SUCCESS
+  PASSWORD_CHANGE
+  SESSION_EXPIRED
+  SESSION_INVALIDATED
+  TWO_FACTOR_ENABLED
+  TWO_FACTOR_DISABLED
+  BACKUP_CODE_USED
+  PROVIDER_LINKED
+  PROVIDER_UNLINKED
+  IMPERSONATION_START
+  IMPERSONATION_END
 }

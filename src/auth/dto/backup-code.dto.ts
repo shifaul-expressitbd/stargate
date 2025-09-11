@@ -1,16 +1,14 @@
 // src/auth/dto/backup-code.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString, Matches } from 'class-validator';
+import {
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+} from 'class-validator';
 
 export class LoginWithBackupCodeDto {
-  @ApiProperty({
-    example: 'user@example.com',
-    description: 'User email address',
-  })
-  @IsEmail()
-  @IsNotEmpty()
-  email: string;
-
   @ApiProperty({
     example: 'ABCD1234',
     description: 'Backup code (8 characters alphanumeric)',
@@ -29,6 +27,11 @@ export class LoginWithBackupCodeDto {
   @IsString()
   @IsNotEmpty()
   tempToken: string;
+
+  @ApiProperty({ example: false, required: false })
+  @IsBoolean()
+  @IsOptional()
+  rememberMe?: boolean;
 }
 
 export class RegenerateBackupCodesDto {
@@ -41,5 +44,5 @@ export class RegenerateBackupCodesDto {
   @Matches(/^[0-9]{6}$/, {
     message: 'Verification code must be exactly 6 digits',
   })
-  verificationCode: string;
+  totpCode: string;
 }

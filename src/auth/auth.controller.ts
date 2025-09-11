@@ -3,11 +3,13 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Logger,
   NotFoundException,
+  Param,
   Post,
   Query,
   Req,
@@ -20,6 +22,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiOperation,
+  ApiParam,
   ApiQuery,
   ApiResponse,
   ApiTags,
@@ -46,6 +49,7 @@ import { ResendVerificationEmailDto } from './dto/resend-verification-email.dto'
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/reset-password.dto';
 import {
   EnableTwoFactorDto,
+  GenerateBackupCodesDto,
   LoginWithTwoFactorDto,
   VerifyTwoFactorDto,
 } from './dto/two-factor.dto';
@@ -69,7 +73,7 @@ export class AuthController {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly urlConfigService: UrlConfigService,
-  ) { }
+  ) {}
 
   private createSuccessResponse<T>(message: string, data?: T): ApiResponse<T> {
     return {
@@ -292,6 +296,8 @@ export class AuthController {
       const result = await this.authService.login(
         req.user,
         loginDto.rememberMe,
+        req.ip,
+        req.get('User-Agent'),
       );
 
       if ('requiresTwoFactor' in result) {
@@ -1130,7 +1136,7 @@ export class AuthController {
     try {
       const isValid = await this.authService.verifyTwoFactorCode(
         userId,
-        dto.code,
+        dto.totpCode,
       );
       if (!isValid) {
         throw new UnauthorizedException('Invalid 2FA code');
@@ -1156,10 +1162,7 @@ export class AuthController {
       example: {
         success: true,
         message: '2FA enabled successfully',
-        data: {
-          success: true,
-          backupCodes: ['BACKUP1', 'BACKUP2'],
-        },
+        data: null,
       },
     },
   })
@@ -1170,10 +1173,12 @@ export class AuthController {
     try {
       const result = await this.authService.enableTwoFactor(
         userId,
-        dto.code,
-        dto.skipBackup,
+        dto.totpCode,
       );
-      return this.createSuccessResponse('2FA enabled successfully', result);
+      return this.createSuccessResponse(
+        '2FA enabled successfully',
+        result || undefined,
+      );
     } catch (error) {
       this.logger.error('2FA enable failed:', error.message);
       throw new BadRequestException(
@@ -1203,7 +1208,10 @@ export class AuthController {
     @Body() dto: EnableTwoFactorDto,
   ): Promise<ApiResponse> {
     try {
-      const result = await this.authService.disableTwoFactor(userId, dto.code);
+      const result = await this.authService.disableTwoFactor(
+        userId,
+        dto.totpCode,
+      );
       return this.createSuccessResponse('2FA disabled successfully', result);
     } catch (error) {
       this.logger.error('2FA disable failed:', error.message);
@@ -1317,9 +1325,14 @@ export class AuthController {
   })
   async loginWithTwoFactor(
     @Body() dto: LoginWithTwoFactorDto,
+    @Req() req: Request,
   ): Promise<ApiResponse> {
     try {
-      const result = await this.authService.loginWithTwoFactor(dto);
+      const result = await this.authService.loginWithTwoFactor(
+        dto,
+        req.ip,
+        req.get('User-Agent'),
+      );
       return this.createSuccessResponse(
         'Two-factor authentication successful',
         result,
@@ -1369,13 +1382,65 @@ export class AuthController {
     }
   }
 
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Throttle({ default: { limit: 3, ttl: 300 } })
+  @Post('2fa/generate-backup-codes')
+  @ApiOperation({ summary: 'Generate new backup codes for 2FA' })
+  @ApiResponse({
+    status: 200,
+    description: 'Backup codes generated successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Backup codes generated successfully',
+        data: {
+          backupCodes: ['ABCD1234', 'EFGH5678', 'IJKL9012'],
+        },
+      },
+    },
+  })
+  async generateBackupCodes(
+    @User('id') userId: string,
+    @Body() dto: GenerateBackupCodesDto,
+  ): Promise<ApiResponse> {
+    try {
+      const result = await this.authService.generateBackupCodes(userId, dto);
+      return this.createSuccessResponse(
+        'Backup codes generated successfully',
+        result,
+      );
+    } catch (error) {
+      this.logger.error('Backup codes generation failed:', error.message);
+
+      if (error instanceof UnauthorizedException) {
+        throw new UnauthorizedException(
+          this.createErrorResponse(
+            error.message,
+            'UNAUTHORIZED',
+            'INVALID_VERIFICATION_CODE',
+          ),
+        );
+      }
+
+      throw new BadRequestException(
+        this.createErrorResponse(
+          error.message,
+          'GENERATION_ERROR',
+          'BACKUP_CODE_GENERATION_FAILED',
+        ),
+      );
+    }
+  }
+
   // ========== TIME SYNCHRONIZATION ==========
 
   @Public()
   @Get('server-time')
   @ApiOperation({
     summary: 'Get server UTC time for TOTP synchronization',
-    description: 'Returns the current server time in UTC to help sync client TOTP generators. Clients can use this to verify their clock is synced with the server.'
+    description:
+      'Returns the current server time in UTC to help sync client TOTP generators. Clients can use this to verify their clock is synced with the server.',
   })
   @ApiResponse({
     status: 200,
@@ -1390,7 +1455,7 @@ export class AuthController {
           utcOffset: 0,
           timezone: 'UTC',
           totpStep: 30,
-          totpWindow: 2
+          totpWindow: 2,
         },
       },
     },
@@ -1406,13 +1471,151 @@ export class AuthController {
       totpWindow: 2,
     };
 
-    return this.createSuccessResponse('Server time retrieved successfully', data);
+    return this.createSuccessResponse(
+      'Server time retrieved successfully',
+      data,
+    );
+  }
+
+  // ========== SESSION MANAGEMENT ==========
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Get('sessions')
+  @ApiOperation({
+    summary: 'Get all active sessions for the current user',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Active sessions retrieved successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Active sessions retrieved successfully',
+        data: [
+          {
+            id: 'session-id',
+            sessionId: 'session-uuid',
+            deviceInfo: { browser: 'Chrome', os: 'Windows' },
+            ipAddress: '192.168.1.1',
+            userAgent: 'Mozilla/5.0...',
+            location: 'New York, US',
+            isActive: true,
+            expiresAt: '2023-12-31T23:59:59.000Z',
+            lastActivity: '2023-12-01T12:00:00.000Z',
+            rememberMe: true,
+            createdAt: '2023-11-30T10:00:00.000Z',
+          },
+        ],
+      },
+    },
+  })
+  async getActiveSessions(@User('id') userId: string): Promise<ApiResponse> {
+    try {
+      const sessions = await this.authService.getActiveSessions(userId);
+      return this.createSuccessResponse(
+        'Active sessions retrieved successfully',
+        sessions,
+      );
+    } catch (error) {
+      this.logger.error('Failed to get active sessions:', error.message);
+      throw new BadRequestException(
+        this.createErrorResponse(
+          'Failed to get active sessions',
+          'SESSION_ERROR',
+          'GET_SESSIONS_FAILED',
+        ),
+      );
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Delete('sessions/:sessionId')
+  @ApiOperation({
+    summary: 'Invalidate a specific session',
+  })
+  @ApiParam({
+    name: 'sessionId',
+    description: 'Session ID to invalidate',
+    type: String,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Session invalidated successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Session invalidated successfully',
+        data: null,
+      },
+    },
+  })
+  async invalidateSession(
+    @User('id') userId: string,
+    @Param('sessionId') sessionId: string,
+  ): Promise<ApiResponse> {
+    try {
+      await this.authService.invalidateSession(userId, sessionId);
+      this.logger.log(`Session ${sessionId} invalidated by user: ${userId}`);
+      return this.createSuccessResponse('Session invalidated successfully');
+    } catch (error) {
+      this.logger.error('Failed to invalidate session:', error.message);
+      throw new BadRequestException(
+        this.createErrorResponse(
+          'Failed to invalidate session',
+          'SESSION_ERROR',
+          'INVALIDATE_SESSION_FAILED',
+        ),
+      );
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Delete('sessions')
+  @ApiOperation({
+    summary: 'Invalidate all other active sessions except current',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Other sessions invalidated successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Other sessions invalidated successfully',
+        data: null,
+      },
+    },
+  })
+  async invalidateOtherSessions(@User() user: any): Promise<ApiResponse> {
+    try {
+      const currentSessionId = user.sessionId;
+      await this.authService.invalidateOtherSessions(user.id, currentSessionId);
+      this.logger.log(
+        `Other sessions invalidated by user: ${user.email} (kept session: ${currentSessionId})`,
+      );
+      return this.createSuccessResponse(
+        'Other sessions invalidated successfully',
+      );
+    } catch (error) {
+      this.logger.error('Failed to invalidate other sessions:', error.message);
+      throw new BadRequestException(
+        this.createErrorResponse(
+          'Failed to invalidate other sessions',
+          'SESSION_ERROR',
+          'INVALIDATE_OTHERS_FAILED',
+        ),
+      );
+    }
   }
 
   // ========== LOGOUT ==========
   @Post('logout')
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Logout current user' })
+  @ApiOperation({
+    summary: 'Logout current user and invalidate current session',
+  })
   @ApiResponse({
     status: 200,
     description: 'Logout successful',
@@ -1425,8 +1628,24 @@ export class AuthController {
     },
   })
   async logout(@User() user: any): Promise<ApiResponse> {
-    this.logger.log(`User logged out: ${user.email}`);
-    return this.createSuccessResponse('Logged out successfully');
+    try {
+      // Extract current session ID from JWT payload
+      const currentSessionId = user.sessionId;
+      await this.authService.logout(user.id, currentSessionId);
+      this.logger.log(
+        `User logged out: ${user.email} (Session: ${currentSessionId || 'unknown'})`,
+      );
+      return this.createSuccessResponse('Logged out successfully');
+    } catch (error) {
+      this.logger.error('Logout failed:', error.message);
+      throw new BadRequestException(
+        this.createErrorResponse(
+          'Failed to logout',
+          'LOGOUT_ERROR',
+          'LOGOUT_FAILED',
+        ),
+      );
+    }
   }
 
   // ========== PASSWORD RESET ==========
@@ -1533,14 +1752,8 @@ export class AuthController {
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['email', 'backupCode', 'tempToken'],
+      required: ['backupCode', 'tempToken'],
       properties: {
-        email: {
-          type: 'string',
-          format: 'email',
-          example: 'user@example.com',
-          description: 'User email address',
-        },
         backupCode: {
           type: 'string',
           example: 'ABCD1234',
@@ -1553,6 +1766,11 @@ export class AuthController {
           type: 'string',
           example: 'eyJhbGciOi...',
           description: 'Temporary token from /login',
+        },
+        rememberMe: {
+          type: 'boolean',
+          example: true,
+          description: 'Extend refresh token expiry if true',
         },
       },
     },
@@ -1596,11 +1814,15 @@ export class AuthController {
   })
   async loginWithBackupCode(
     @Body() loginWithBackupCodeDto: LoginWithBackupCodeDto,
+    @Req() req: Request,
   ): Promise<ApiResponse> {
     try {
       const result = await this.authService.loginWithBackupCode(
         loginWithBackupCodeDto.tempToken,
         loginWithBackupCodeDto.backupCode,
+        loginWithBackupCodeDto.rememberMe,
+        req.ip,
+        req.get('User-Agent'),
       );
 
       // Get updated user to check remaining backup codes

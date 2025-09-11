@@ -18,7 +18,10 @@ import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
 import { RegenerateBackupCodesDto } from './dto/backup-code.dto';
 import { RegisterDto } from './dto/register.dto';
-import { LoginWithTwoFactorDto } from './dto/two-factor.dto';
+import {
+  GenerateBackupCodesDto,
+  LoginWithTwoFactorDto,
+} from './dto/two-factor.dto';
 
 // Temporary type definitions until Prisma client generates
 interface UserSession {
@@ -96,7 +99,6 @@ export interface TwoFactorGenerateResponse {
   qrCodeUrl: string;
   manualEntryKey: string;
   otpAuthUrl: string;
-  currentCode?: string;
 }
 
 export interface TwoFactorEnableResponse {
@@ -146,6 +148,13 @@ export class AuthService {
   private readonly totpOptions = {
     window: 3,
     step: 30,
+  };
+
+  private readonly enhancedTotpConfig = {
+    algorithm: 'SHA1' as const,
+    digits: 6,
+    step: 30,
+    window: 3,
   };
 
   constructor(
@@ -389,6 +398,8 @@ export class AuthService {
   async login(
     user: any,
     rememberMe = false,
+    ipAddress?: string,
+    userAgent?: string,
   ): Promise<AuthResponse | TwoFactorRequiredResponse> {
     if (user.isTwoFactorEnabled) {
       const tempToken = await this.jwtService.signAsync(
@@ -411,6 +422,8 @@ export class AuthService {
       user.email,
       user.roles,
       rememberMe,
+      ipAddress,
+      userAgent,
     );
     const { password, verificationToken, twoFactorSecret, ...userResult } =
       user;
@@ -436,9 +449,13 @@ export class AuthService {
     };
   }
 
-  async loginWithTwoFactor(dto: LoginWithTwoFactorDto): Promise<AuthResponse> {
+  async loginWithTwoFactor(
+    dto: LoginWithTwoFactorDto,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthResponse> {
     try {
-      const { tempToken, code, rememberMe = false } = dto;
+      const { tempToken, totpCode, rememberMe = false } = dto;
 
       let payload: JwtPayload;
       try {
@@ -454,7 +471,7 @@ export class AuthService {
         throw new BadRequestException('2FA not enabled for this account');
       }
 
-      const isValidCode = await this.verifyTwoFactorCode(user.id, code);
+      const isValidCode = await this.verifyTwoFactorCode(user.id, totpCode);
       if (!isValidCode) {
         throw new UnauthorizedException('Invalid 2FA code');
       }
@@ -464,6 +481,8 @@ export class AuthService {
         user.email,
         user.roles,
         rememberMe,
+        ipAddress,
+        userAgent,
       );
       const { password, verificationToken, twoFactorSecret, ...userResult } =
         user;
@@ -473,6 +492,15 @@ export class AuthService {
         where: { userId: user.id, isPrimary: true },
         select: { provider: true },
       });
+
+      // Log successful login
+      await this.logAccessEvent(
+        user.id,
+        'LOGIN_SUCCESS',
+        tokens.session.sessionId,
+        ipAddress,
+        userAgent,
+      );
 
       return {
         user: {
@@ -675,6 +703,322 @@ export class AuthService {
     }
   }
 
+  /**
+   * Get all active sessions for a user
+   */
+  async getActiveSessions(userId: string): Promise<SessionInfo[]> {
+    try {
+      const activeSessions = await this.prisma.userSession.findMany({
+        where: {
+          userId,
+          isActive: true,
+          expiresAt: { gt: new Date() },
+        },
+        select: {
+          id: true,
+          sessionId: true,
+          deviceInfo: true,
+          ipAddress: true,
+          userAgent: true,
+          location: true,
+          isActive: true,
+          expiresAt: true,
+          lastActivity: true,
+          rememberMe: true,
+          createdAt: true,
+        },
+        orderBy: {
+          lastActivity: 'desc',
+        },
+      });
+
+      return activeSessions.map((session) => ({
+        id: session.id,
+        sessionId: session.sessionId,
+        deviceInfo: session.deviceInfo,
+        ipAddress: session.ipAddress,
+        userAgent: session.userAgent,
+        location: session.location,
+        isActive: session.isActive,
+        expiresAt: session.expiresAt,
+        lastActivity: session.lastActivity,
+        rememberMe: session.rememberMe,
+        createdAt: session.createdAt,
+      }));
+    } catch (error) {
+      this.logger.error(
+        `Failed to get active sessions for user ${userId}:`,
+        error.message,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Invalidate a specific session
+   */
+  async invalidateSession(userId: string, sessionId: string): Promise<void> {
+    try {
+      const session = await this.prisma.userSession.findFirst({
+        where: {
+          userId,
+          sessionId,
+        },
+      });
+
+      if (!session) {
+        throw new NotFoundException('Session not found');
+      }
+
+      // Delete all refresh tokens for this session
+      await this.prisma.refreshToken.deleteMany({
+        where: {
+          sessionId: session.id,
+        },
+      });
+
+      // Mark session as inactive
+      await this.prisma.userSession.update({
+        where: { id: session.id },
+        data: { isActive: false },
+      });
+
+      // Log the invalidation
+      await this.logAccessEvent(
+        userId,
+        'SESSION_INVALIDATED',
+        session.sessionId,
+      );
+
+      this.logger.log(`✅ Invalidated session ${sessionId} for user ${userId}`);
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error(
+        `Failed to invalidate session ${sessionId} for user ${userId}:`,
+        error.message,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Invalidate all other sessions except the current one
+   */
+  async invalidateOtherSessions(
+    userId: string,
+    currentSessionId: string,
+  ): Promise<void> {
+    try {
+      // Get all active sessions except the current one
+      const otherSessions = await this.prisma.userSession.findMany({
+        where: {
+          userId,
+          isActive: true,
+          sessionId: { not: currentSessionId },
+        },
+        select: { id: true, sessionId: true },
+      });
+
+      if (otherSessions.length === 0) {
+        this.logger.log(`No other active sessions found for user ${userId}`);
+        return;
+      }
+
+      const sessionIds = otherSessions.map((s) => s.id);
+
+      // Delete refresh tokens for all other sessions
+      await this.prisma.refreshToken.deleteMany({
+        where: {
+          sessionId: { in: sessionIds },
+        },
+      });
+
+      // Mark all other sessions as inactive
+      await this.prisma.userSession.updateMany({
+        where: {
+          id: { in: sessionIds },
+        },
+        data: { isActive: false },
+      });
+
+      // Log the invalidation for each session
+      for (const session of otherSessions) {
+        await this.logAccessEvent(
+          userId,
+          'SESSION_INVALIDATED',
+          session.sessionId,
+        );
+      }
+
+      this.logger.log(
+        `✅ Invalidated ${otherSessions.length} other sessions for user ${userId}, kept session ${currentSessionId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to invalidate other sessions for user ${userId}:`,
+        error.message,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Clean up expired sessions and tokens (for maintenance)
+   */
+  async cleanupExpiredSessions(): Promise<{
+    sessionsDeleted: number;
+    tokensDeleted: number;
+  }> {
+    try {
+      const now = new Date();
+
+      // Find expired sessions
+      const expiredSessions = await this.prisma.userSession.findMany({
+        where: {
+          OR: [{ expiresAt: { lt: now } }, { isActive: false }],
+        },
+        select: { id: true },
+      });
+
+      if (expiredSessions.length === 0) {
+        return { sessionsDeleted: 0, tokensDeleted: 0 };
+      }
+
+      const sessionIds = expiredSessions.map((s) => s.id);
+
+      // Delete refresh tokens for expired sessions
+      const tokensDeleted = await this.prisma.refreshToken.deleteMany({
+        where: {
+          sessionId: { in: sessionIds },
+        },
+      });
+
+      // Delete expired sessions
+      await this.prisma.userSession.deleteMany({
+        where: {
+          id: { in: sessionIds },
+        },
+      });
+
+      this.logger.log(
+        `✅ Cleanup: Deleted ${expiredSessions.length} expired sessions and ${tokensDeleted.count} associated refresh tokens`,
+      );
+
+      return {
+        sessionsDeleted: expiredSessions.length,
+        tokensDeleted: tokensDeleted.count,
+      };
+    } catch (error) {
+      this.logger.error('Failed to cleanup expired sessions:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Log access events for audit and monitoring
+   */
+  async logAccessEvent(
+    userId: string,
+    event: string,
+    sessionId?: string,
+    ipAddress?: string,
+    userAgent?: string,
+    success = true,
+    failureReason?: string,
+  ): Promise<void> {
+    try {
+      await this.prisma.accessLog.create({
+        data: {
+          userId,
+          event: event as any, // Cast to AccessEvent enum
+          sessionId,
+          ipAddress,
+          userAgent,
+          success,
+          failureReason,
+        },
+      });
+    } catch (error) {
+      // Don't throw error for logging failures, just log it
+      this.logger.warn(
+        `Failed to log access event ${event} for user ${userId}:`,
+        error.message,
+      );
+    }
+  }
+
+  /**
+   * Logout user by deleting the current session and its refresh tokens
+   */
+  async logout(userId: string, currentSessionId?: string): Promise<void> {
+    try {
+      let sessionToDelete;
+
+      if (currentSessionId) {
+        // Find the specific session by sessionId
+        sessionToDelete = await this.prisma.userSession.findFirst({
+          where: {
+            userId,
+            sessionId: currentSessionId,
+            isActive: true,
+          },
+          select: {
+            id: true,
+            sessionId: true,
+          },
+        });
+
+        if (!sessionToDelete) {
+          this.logger.warn(
+            `Current session ${currentSessionId} not found or already inactive for user: ${userId}`,
+          );
+          return;
+        }
+      } else {
+        // Fallback: find the most recent active session for the user
+        sessionToDelete = await this.prisma.userSession.findFirst({
+          where: {
+            userId,
+            isActive: true,
+          },
+          orderBy: {
+            lastActivity: 'desc',
+          },
+          select: {
+            id: true,
+            sessionId: true,
+          },
+        });
+
+        if (!sessionToDelete) {
+          this.logger.log(`No active sessions found for user: ${userId}`);
+          return;
+        }
+      }
+
+      // Delete all refresh tokens for this session
+      await this.prisma.refreshToken.deleteMany({
+        where: {
+          sessionId: sessionToDelete.id,
+        },
+      });
+
+      // Delete the session
+      await this.prisma.userSession.delete({
+        where: {
+          id: sessionToDelete.id,
+        },
+      });
+
+      this.logger.log(
+        `✅ Logged out user ${userId}: Session ${sessionToDelete.sessionId} and associated tokens deleted`,
+      );
+    } catch (error) {
+      this.logger.error(`Failed to logout user ${userId}:`, error.message);
+      throw error;
+    }
+  }
+
   async refreshToken(
     refreshToken: string,
     userId: string,
@@ -777,8 +1121,8 @@ export class AuthService {
         this.configService.get<string>('JWT_EXPIRES_IN') || '15m';
       const refreshTokenExpiresIn = rememberMe
         ? this.configService.get<string>(
-          'JWT_REFRESH_REMEMBER_ME_EXPIRES_IN',
-        ) || '30d'
+            'JWT_REFRESH_REMEMBER_ME_EXPIRES_IN',
+          ) || '30d'
         : this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
 
       // Generate access token
@@ -824,6 +1168,9 @@ export class AuthService {
   async loginWithBackupCode(
     tempToken: string,
     backupCode: string,
+    rememberMe: boolean = false,
+    ipAddress?: string,
+    userAgent?: string,
   ): Promise<AuthResponse> {
     try {
       let payload: JwtPayload;
@@ -897,15 +1244,17 @@ export class AuthService {
         `✅ Backup code used successfully for user: ${user.email}. Remaining codes: ${remainingBackupCodes.length}`,
       );
 
-      const tokens = await this.generateTokens(user.id, user.email, user.roles);
+      const tokens = await this.generateTokens(
+        user.id,
+        user.email,
+        user.roles,
+        rememberMe,
+        ipAddress,
+        userAgent,
+      );
 
-      const {
-        password,
-        verificationToken,
-        twoFactorSecret,
-        refreshTokenHash,
-        ...userResult
-      } = user;
+      const { password, verificationToken, twoFactorSecret, ...userResult } =
+        user;
 
       // Get primary provider
       const primaryProvider = await this.prisma.authProvider.findFirst({
@@ -1243,6 +1592,61 @@ export class AuthService {
     return Buffer.from(output.slice(0, index));
   }
 
+  /**
+   * Enhanced OTP Auth URL generation with support for multiple algorithms and parameters
+   */
+  private generateEnhancedOtpAuthUrl(
+    secret: string,
+    issuer: string,
+    accountName: string,
+    options: {
+      type?: 'TOTP' | 'HOTP';
+      algorithm?: 'SHA1' | 'SHA256' | 'SHA512';
+      digits?: number;
+      period?: number;
+      counter?: number;
+      image?: string;
+    } = {},
+  ): string {
+    const {
+      type = 'TOTP',
+      algorithm = this.enhancedTotpConfig.algorithm,
+      digits = this.enhancedTotpConfig.digits,
+      period = this.enhancedTotpConfig.step,
+      counter = 0,
+      image,
+    } = options;
+
+    // Remove issuerUrl reference since it's not part of the standard otpauth URL specification
+    // Build the label with proper encoding
+    const label = `${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}`;
+
+    // Build query parameters
+    const params = new URLSearchParams();
+    params.append('secret', secret);
+    params.append('issuer', issuer);
+    params.append('algorithm', algorithm);
+    params.append('digits', digits.toString());
+
+    // Add type-specific parameters
+    if (type === 'TOTP') {
+      params.append('period', period.toString());
+    } else if (type === 'HOTP') {
+      params.append('counter', counter.toString());
+    }
+
+    // Add optional parameters
+    if (image) {
+      params.append('image', encodeURIComponent(image));
+    }
+
+    // Build the full URL
+    const baseUrl = `otpauth://${type.toLowerCase()}/${label}`;
+    const queryString = params.toString();
+
+    return `${baseUrl}?${queryString}`;
+  }
+
   async generateTwoFactorSecret(
     userId: string,
   ): Promise<TwoFactorGenerateResponse> {
@@ -1257,8 +1661,20 @@ export class AuthService {
       const issuer = this.appName;
       const accountName = `${user.email.split('@')[0]}@${user.email.split('@')[1]}`;
 
-      // Manual construction for better issuer support
-      const otpAuthUrl = `otpauth://totp/${encodeURIComponent(`${issuer}:${accountName}`)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+      // Enhanced OTP Auth URL generation with multiple improvements
+      const otpAuthUrl = this.generateEnhancedOtpAuthUrl(
+        secret,
+        issuer,
+        accountName,
+        {
+          type: 'TOTP',
+          algorithm: this.enhancedTotpConfig.algorithm,
+          digits: this.enhancedTotpConfig.digits,
+          period: this.enhancedTotpConfig.step,
+          // Add image parameter if user has avatar
+          image: user.avatar ? encodeURIComponent(user.avatar) : undefined,
+        },
+      );
 
       // Handle QR code generation with proper error checking
       try {
@@ -1271,15 +1687,11 @@ export class AuthService {
           twoFactorSecret: secret,
         });
 
-        const currentCode = totp.generate(secret);
-
         const result = {
           secret,
           qrCodeUrl,
           manualEntryKey: secret,
           otpAuthUrl,
-          currentCode:
-            process.env.NODE_ENV === 'development' ? currentCode : undefined,
         };
 
         this.logger.log(
@@ -1303,7 +1715,10 @@ export class AuthService {
     }
   }
 
-  async verifyTwoFactorCode(userId: string, code: string): Promise<boolean> {
+  async verifyTwoFactorCode(
+    userId: string,
+    totpCode: string,
+  ): Promise<boolean> {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -1314,7 +1729,7 @@ export class AuthService {
         return false;
       }
 
-      const cleanCode = code.replace(/\s/g, '').padStart(6, '0');
+      const cleanCode = totpCode.replace(/\s/g, '').padStart(6, '0');
 
       if (!/^\d{6}$/.test(cleanCode)) {
         this.logger.warn(`Invalid code format: ${cleanCode}`);
@@ -1343,9 +1758,13 @@ export class AuthService {
         const testTime = currentTime + i * timeStep;
         const testCounter = Math.floor(testTime / timeStep);
         const testCode = this.generateTOTPCode(secret, testCounter);
-        this.logger.debug(`Expected code at offset ${i * timeStep}s: ${testCode} (time: ${new Date(testTime * 1000).toISOString()})`);
+        this.logger.debug(
+          `Expected code at offset ${i * timeStep}s: ${testCode} (time: ${new Date(testTime * 1000).toISOString()})`,
+        );
         if (testCode === cleanCode) {
-          this.logger.log(`✅ 2FA code verified for user: ${user.email} at offset ${i * 30}s`);
+          this.logger.log(
+            `✅ 2FA code verified for user: ${user.email} at offset ${i * 30}s`,
+          );
           return true;
         }
       }
@@ -1356,11 +1775,15 @@ export class AuthService {
       this.logger.warn(`❌ No matching code found for user: ${user.email}`);
       this.logger.debug(`Received code: ${cleanCode}`);
       this.logger.debug(`Server time: ${serverTime} (${serverTimestamp})`);
-      this.logger.debug(`Checked time window: ±${this.totpOptions.window * this.totpOptions.step}s`);
+      this.logger.debug(
+        `Checked time window: ±${this.totpOptions.window * this.totpOptions.step}s`,
+      );
 
       // Provide debugging info in the warning
       this.logger.warn(`⏰ Time sync debugging for user ${userId}:`);
-      this.logger.warn(`📱 Ensure authenticator app is time-synced with NTP server`);
+      this.logger.warn(
+        `📱 Ensure authenticator app is time-synced with NTP server`,
+      );
       this.logger.warn(`🌍 Client timezone differences may cause this issue`);
       this.logger.warn(`⚙️ Check device time vs ${serverTime}`);
 
@@ -1374,70 +1797,59 @@ export class AuthService {
     }
   }
 
-
   async enableTwoFactor(
     userId: string,
-    code: string,
-    skipBackup = false,
-  ): Promise<TwoFactorEnableResponse> {
+    totpCode: string,
+  ): Promise<TwoFactorEnableResponse | void> {
     const user = await this.usersService.findById(userId);
     if (!user) throw new BadRequestException('User not found');
-    if (user.isTwoFactorEnabled)
-      throw new BadRequestException('2FA already enabled');
+
+    // If 2FA is already enabled, disable it first to allow re-enabling with new secret
+    if (user.isTwoFactorEnabled) {
+      this.logger.log(
+        `🔄 Disabling existing 2FA for user: ${user.email} to allow re-enabling`,
+      );
+      await this.usersService.update(userId, {
+        isTwoFactorEnabled: false,
+        backupCodes: { set: [] }, // Clear existing backup codes
+        // Keep the twoFactorSecret as it might be newly generated
+      });
+      this.logger.log(
+        `✅ Existing 2FA disabled for re-enabling: ${user.email}`,
+      );
+    }
+
     if (!user.twoFactorSecret) {
       throw new BadRequestException(
         'No 2FA secret generated. Run /2fa/generate first.',
       );
     }
 
-    const isValid = await this.verifyTwoFactorCode(userId, code);
+    const isValid = await this.verifyTwoFactorCode(userId, totpCode);
     if (!isValid) {
       const currentCode = totp.generate(user.twoFactorSecret);
       const timeInfo = `Current server time: ${new Date().toISOString()}`;
 
       this.logger.warn(
-        `2FA enable failed for ${user.email}: Expected=${currentCode}, Received=${code}`,
+        `2FA enable failed for ${user.email}: Expected=${currentCode}, Received=${totpCode}`,
       );
       this.logger.warn(`Time sync issue? ${timeInfo}`);
 
       throw new UnauthorizedException(
         `Invalid verification code. Server expected: ${currentCode} (${timeInfo}). ` +
-        'Please check your device time synchronization.',
+          'Please check your device time synchronization.',
       );
     }
 
-    const backupCodes = skipBackup
-      ? []
-      : Array.from({ length: 8 }, () =>
-        Math.random().toString(36).slice(2, 10).toUpperCase(),
-      );
-
-    const hashedBackupCodes = await Promise.all(
-      backupCodes.map((code) => bcrypt.hash(code, 12)),
-    );
-
-    this.logger.log(
-      `🔐 Generated ${backupCodes.length} backup codes for user: ${user.email}`,
-    );
-
+    // Enable 2FA without generating backup codes
     await this.usersService.update(userId, {
       isTwoFactorEnabled: true,
-      backupCodes: {
-        set: hashedBackupCodes,
-      },
     });
 
-    this.logger.log(
-      `📝 Stored ${hashedBackupCodes.length} hashed backup codes for user: ${user.email}`,
-    );
     this.logger.log(`✅ 2FA enabled for user: ${user.email}`);
-
-    return {
-      ...(backupCodes.length > 0 && { backupCodes }),
-    };
   }
 
-  async disableTwoFactor(userId: string, code: string): Promise<void> {
+  async disableTwoFactor(userId: string, totpCode: string): Promise<void> {
     const user = await this.usersService.findById(userId);
     if (!user) throw new BadRequestException('User not found');
     if (!user.isTwoFactorEnabled)
@@ -1451,11 +1863,11 @@ export class AuthService {
       `📋 Current state - enabled: ${user.isTwoFactorEnabled}, secret: ${!!user.twoFactorSecret}, backupCodes: ${user.backupCodes?.length || 0}`,
     );
 
-    const isValid = await this.verifyTwoFactorCode(userId, code);
+    const isValid = await this.verifyTwoFactorCode(userId, totpCode);
     if (!isValid) {
       const expectedCode = totp.generate(user.twoFactorSecret);
       this.logger.debug(
-        `Expected code during disable: ${expectedCode}, Received: ${code}`,
+        `Expected code during disable: ${expectedCode}, Received: ${totpCode}`,
       );
       throw new UnauthorizedException(
         `Invalid verification code. Did you mean ${expectedCode}? Check device time.`,
@@ -1503,14 +1915,11 @@ export class AuthService {
       }
 
       // Verify the provided TOTP code
-      const isValid = await this.verifyTwoFactorCode(
-        userId,
-        dto.verificationCode,
-      );
+      const isValid = await this.verifyTwoFactorCode(userId, dto.totpCode);
       if (!isValid) {
         const currentCode = totp.generate(user.twoFactorSecret);
         this.logger.warn(
-          `2FA regeneration failed for ${user.email}: Expected=${currentCode}, Received=${dto.verificationCode}`,
+          `2FA regeneration failed for ${user.email}: Expected=${currentCode}, Received=${dto.totpCode}`,
         );
         throw new UnauthorizedException(
           `Invalid verification code. Please verify your device time and try again.`,
@@ -1565,6 +1974,49 @@ export class AuthService {
     return {
       isEnabled: user.isTwoFactorEnabled,
       hasSecret: !!user.twoFactorSecret,
+    };
+  }
+
+  async generateBackupCodes(
+    userId: string,
+    dto: GenerateBackupCodesDto,
+  ): Promise<TwoFactorEnableResponse> {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new BadRequestException('User not found');
+    if (!user.isTwoFactorEnabled)
+      throw new BadRequestException('2FA not enabled for this account');
+    if (!user.twoFactorSecret)
+      throw new BadRequestException('2FA secret not found');
+
+    // Verify the TOTP code
+    const isValid = await this.verifyTwoFactorCode(userId, dto.totpCode);
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid verification code');
+    }
+
+    // Generate new backup codes
+    const newBackupCodes = Array.from({ length: 10 }, () =>
+      Math.random().toString(36).slice(2, 10).toUpperCase(),
+    );
+
+    // Hash the new backup codes
+    const hashedBackupCodes = await Promise.all(
+      newBackupCodes.map((code) => bcrypt.hash(code, 12)),
+    );
+
+    // Update user with new hashed backup codes
+    await this.usersService.update(userId, {
+      backupCodes: {
+        set: hashedBackupCodes,
+      },
+    });
+
+    this.logger.log(
+      `✅ Generated ${newBackupCodes.length} backup codes for user: ${user.email}`,
+    );
+
+    return {
+      backupCodes: newBackupCodes,
     };
   }
 

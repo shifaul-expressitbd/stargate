@@ -147,7 +147,6 @@ export class UsersController {
       twoFactorSecret,
       resetToken,
       resetTokenExpires,
-      refreshTokenHash,
       ...profile
     } = userData;
 
