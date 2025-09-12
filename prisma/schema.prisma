@@ -44,9 +44,17 @@ model User {
   authProviders AuthProvider[]
 
   // Relations for session management
-  sessions          UserSession[]
+  sessions  UserSession[]
+  AccessLog AccessLog[]
+
+  // Relations for support ticket system
+  supportTickets    SupportTicket[]       @relation("CreatedTickets")
+  assignedTickets   SupportTicket[]       @relation("AssignedTickets")
+  ticketReplies     TicketReply[]         @relation("ReplyAuthors")
+  reopenRequests    TicketReopenRequest[] @relation("ReopenRequesters")
+  reopenReviews     TicketReopenRequest[] @relation("ReopenReviewers")
   MetaCapiContainer MetaCapiContainer[]
-  AccessLog         AccessLog[]
+  FileMetadata      FileMetadata[]
 
   @@map("users")
 }
@@ -190,13 +198,13 @@ model MetaCapiContainer {
   accessToken String // Facebook API Access Token
   testCode    String? // Optional test code for Facebook API
   userId      String
-  user        User            @relation("UserMetaCapiContainers", fields: [userId], references: [id], map: "meta_capi_containers_user_id_fkey")
+  user        User            @relation("UserMetaCapiContainers", fields: [userId], references: [id])
   status      ContainerStatus @default(CREATED)
   regionKey   String
   region      MetaCapiRegion  @relation(fields: [regionKey], references: [key])
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
-  User        User            @relation(fields: [userId], references: [id])
+  User        User            @relation(fields: [userId], references: [id], map: "meta_capi_containers_user_id_fkey2")
 
   @@index([regionKey])
   @@map("meta_capi_containers")
@@ -244,6 +252,149 @@ model MetaCapiRegion {
   @@index([isActive])
   @@index([isDefault])
   @@map("meta_capi_regions")
+}
+
+// Support Ticket System Enums
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ReopenStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TicketType {
+  GENERAL
+  TECHNICAL
+  BILLING
+  FEEDBACK
+}
+
+// Support Ticket System Models
+model SupportTicket {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  status      TicketStatus @default(OPEN)
+  priority    Priority     @default(NORMAL)
+  type        TicketType   @default(GENERAL)
+
+  createdById String
+  createdBy   User   @relation("CreatedTickets", fields: [createdById], references: [id])
+
+  assignedToId String?
+  assignedTo   User?     @relation("AssignedTickets", fields: [assignedToId], references: [id])
+  assignedAt   DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  closedAt  DateTime?
+
+  replies        TicketReply[]
+  reopenRequests TicketReopenRequest[]
+  FileMetadata   FileMetadata[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([createdById])
+  @@index([assignedToId])
+  @@map("support_tickets")
+}
+
+model TicketReply {
+  id       String        @id @default(cuid())
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation("ReplyAuthors", fields: [authorId], references: [id])
+
+  content    String
+  isInternal Boolean @default(false)
+
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  FileMetadata FileMetadata[]
+
+  @@index([ticketId])
+  @@index([authorId])
+  @@map("ticket_replies")
+}
+
+model TicketReopenRequest {
+  id       String        @id @default(cuid())
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  requestedById String
+  requestedBy   User   @relation("ReopenRequesters", fields: [requestedById], references: [id])
+
+  reason String
+  status ReopenStatus @default(PENDING)
+
+  reviewedById String?
+  reviewedBy   User?   @relation("ReopenReviewers", fields: [reviewedById], references: [id])
+
+  reviewedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ticketId])
+  @@index([requestedById])
+  @@index([status])
+  @@map("ticket_reopen_requests")
+}
+
+model FileMetadata {
+  id           String @id @default(cuid())
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  path         String
+
+  category         String?
+  securityStatus   String?
+  processingStatus String?
+
+  // Storage provider fields
+  storageProvider String
+  storageKey      String?   @unique
+  storageUrl      String?
+  storageBucket   String?
+  storageRegion   String?
+  checksum        String?
+  expiresAt       DateTime?
+
+  createdAt       DateTime       @default(now())
+  User            User?          @relation(fields: [userId], references: [id])
+  userId          String?
+  SupportTicket   SupportTicket? @relation(fields: [supportTicketId], references: [id])
+  supportTicketId String?
+  TicketReply     TicketReply?   @relation(fields: [ticketReplyId], references: [id])
+  ticketReplyId   String?
+
+  @@index([category])
+  @@index([securityStatus])
+  @@index([processingStatus])
+  @@index([createdAt])
+  @@index([storageProvider])
+  @@index([storageKey])
+  @@index([storageProvider, createdAt])
+  @@map("file_metadata")
 }
 
 enum ContainerStatus {

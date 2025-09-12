@@ -46,6 +46,18 @@ export interface AuthResponse {
   refreshToken: string;
 }
 
+export interface RegisterResponse {
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    avatar?: string | null;
+    provider: string;
+    isEmailVerified: boolean;
+    isTwoFactorEnabled: boolean;
+  };
+}
+
 export interface TwoFactorRequiredResponse {
   requiresTwoFactor: true;
   userId: string;
@@ -65,7 +77,7 @@ export class AuthCoreService {
     private readonly mailService: MailService,
     private readonly prisma: PrismaService,
     private readonly loggerService: LoggerService,
-  ) {}
+  ) { }
 
   async validateUser(email: string, password: string): Promise<any> {
     try {
@@ -113,7 +125,7 @@ export class AuthCoreService {
     }
   }
 
-  async register(registerDto: any): Promise<AuthResponse> {
+  async register(registerDto: any): Promise<RegisterResponse> {
     try {
       const existingUser = await this.usersService.findByEmail(
         registerDto.email,
@@ -153,7 +165,6 @@ export class AuthCoreService {
       });
 
       this.sendVerificationEmailAsync(user.email, emailVerificationToken);
-      const tokens = await this.generateTokens(user.id, user.email, user.roles);
 
       // Get user with auth providers
       const userWithProviders = await this.prisma.user.findUnique({
@@ -183,8 +194,6 @@ export class AuthCoreService {
           isEmailVerified: userResult.isEmailVerified,
           isTwoFactorEnabled: userResult.isTwoFactorEnabled,
         },
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
       };
     } catch (error) {
       if (
@@ -294,8 +303,8 @@ export class AuthCoreService {
         this.configService.get<string>('JWT_EXPIRES_IN') || '15m';
       const refreshTokenExpiresIn = rememberMe
         ? this.configService.get<string>(
-            'JWT_REFRESH_REMEMBER_ME_EXPIRES_IN',
-          ) || '30d'
+          'JWT_REFRESH_REMEMBER_ME_EXPIRES_IN',
+        ) || '30d'
         : this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
 
       // Generate access token

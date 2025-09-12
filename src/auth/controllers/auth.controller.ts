@@ -63,7 +63,7 @@ export class AuthController {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly urlConfigService: UrlConfigService,
-  ) {}
+  ) { }
 
   private createSuccessResponse<T>(message: string, data?: T): ApiResponse<T> {
     return {
@@ -136,8 +136,6 @@ export class AuthController {
             isEmailVerified: false,
             isTwoFactorEnabled: false,
           },
-          accessToken: 'jwt-token',
-          refreshToken: 'refresh-token',
         },
       },
     },

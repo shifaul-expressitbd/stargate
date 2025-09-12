@@ -1,4 +1,16 @@
 -- CreateEnum
+CREATE TYPE "public"."TicketStatus" AS ENUM ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
+
+-- CreateEnum
+CREATE TYPE "public"."Priority" AS ENUM ('LOW', 'NORMAL', 'HIGH', 'URGENT');
+
+-- CreateEnum
+CREATE TYPE "public"."ReopenStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+
+-- CreateEnum
+CREATE TYPE "public"."TicketType" AS ENUM ('GENERAL', 'TECHNICAL', 'BILLING', 'FEEDBACK');
+
+-- CreateEnum
 CREATE TYPE "public"."ContainerStatus" AS ENUM ('CREATED', 'PENDING', 'RUNNING', 'STOPPED', 'ERROR', 'DELETED');
 
 -- CreateEnum
@@ -163,6 +175,68 @@ CREATE TABLE "public"."meta_capi_regions" (
 );
 
 -- CreateTable
+CREATE TABLE "public"."support_tickets" (
+    "id" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT,
+    "status" "public"."TicketStatus" NOT NULL DEFAULT 'OPEN',
+    "priority" "public"."Priority" NOT NULL DEFAULT 'NORMAL',
+    "type" "public"."TicketType" NOT NULL DEFAULT 'GENERAL',
+    "createdById" TEXT NOT NULL,
+    "assignedToId" TEXT,
+    "assignedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "closedAt" TIMESTAMP(3),
+
+    CONSTRAINT "support_tickets_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."ticket_replies" (
+    "id" TEXT NOT NULL,
+    "ticketId" TEXT NOT NULL,
+    "authorId" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "isInternal" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ticket_replies_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."ticket_reopen_requests" (
+    "id" TEXT NOT NULL,
+    "ticketId" TEXT NOT NULL,
+    "requestedById" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "status" "public"."ReopenStatus" NOT NULL DEFAULT 'PENDING',
+    "reviewedById" TEXT,
+    "reviewedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ticket_reopen_requests_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."file_metadata" (
+    "id" TEXT NOT NULL,
+    "filename" TEXT NOT NULL,
+    "originalName" TEXT NOT NULL,
+    "mimeType" TEXT NOT NULL,
+    "size" INTEGER NOT NULL,
+    "path" TEXT NOT NULL,
+    "uploadedById" TEXT NOT NULL,
+    "relatedTicketId" TEXT,
+    "relatedReplyId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "file_metadata_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "public"."ImpersonationSession" (
     "id" TEXT NOT NULL,
     "adminId" TEXT NOT NULL,
@@ -300,6 +374,42 @@ CREATE INDEX "meta_capi_regions_isActive_idx" ON "public"."meta_capi_regions"("i
 CREATE INDEX "meta_capi_regions_isDefault_idx" ON "public"."meta_capi_regions"("isDefault");
 
 -- CreateIndex
+CREATE INDEX "support_tickets_status_idx" ON "public"."support_tickets"("status");
+
+-- CreateIndex
+CREATE INDEX "support_tickets_priority_idx" ON "public"."support_tickets"("priority");
+
+-- CreateIndex
+CREATE INDEX "support_tickets_createdById_idx" ON "public"."support_tickets"("createdById");
+
+-- CreateIndex
+CREATE INDEX "support_tickets_assignedToId_idx" ON "public"."support_tickets"("assignedToId");
+
+-- CreateIndex
+CREATE INDEX "ticket_replies_ticketId_idx" ON "public"."ticket_replies"("ticketId");
+
+-- CreateIndex
+CREATE INDEX "ticket_replies_authorId_idx" ON "public"."ticket_replies"("authorId");
+
+-- CreateIndex
+CREATE INDEX "ticket_reopen_requests_ticketId_idx" ON "public"."ticket_reopen_requests"("ticketId");
+
+-- CreateIndex
+CREATE INDEX "ticket_reopen_requests_requestedById_idx" ON "public"."ticket_reopen_requests"("requestedById");
+
+-- CreateIndex
+CREATE INDEX "ticket_reopen_requests_status_idx" ON "public"."ticket_reopen_requests"("status");
+
+-- CreateIndex
+CREATE INDEX "file_metadata_uploadedById_idx" ON "public"."file_metadata"("uploadedById");
+
+-- CreateIndex
+CREATE INDEX "file_metadata_relatedTicketId_idx" ON "public"."file_metadata"("relatedTicketId");
+
+-- CreateIndex
+CREATE INDEX "file_metadata_relatedReplyId_idx" ON "public"."file_metadata"("relatedReplyId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "ImpersonationSession_targetId_key" ON "public"."ImpersonationSession"("targetId");
 
 -- CreateIndex
@@ -358,6 +468,36 @@ ALTER TABLE "public"."meta_capi_containers" ADD CONSTRAINT "meta_capi_containers
 
 -- AddForeignKey
 ALTER TABLE "public"."meta_capi_containers" ADD CONSTRAINT "meta_capi_containers_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."support_tickets" ADD CONSTRAINT "support_tickets_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."support_tickets" ADD CONSTRAINT "support_tickets_assignedToId_fkey" FOREIGN KEY ("assignedToId") REFERENCES "public"."users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."ticket_replies" ADD CONSTRAINT "ticket_replies_ticketId_fkey" FOREIGN KEY ("ticketId") REFERENCES "public"."support_tickets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."ticket_replies" ADD CONSTRAINT "ticket_replies_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."ticket_reopen_requests" ADD CONSTRAINT "ticket_reopen_requests_ticketId_fkey" FOREIGN KEY ("ticketId") REFERENCES "public"."support_tickets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."ticket_reopen_requests" ADD CONSTRAINT "ticket_reopen_requests_requestedById_fkey" FOREIGN KEY ("requestedById") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."ticket_reopen_requests" ADD CONSTRAINT "ticket_reopen_requests_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "public"."users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."file_metadata" ADD CONSTRAINT "file_metadata_uploadedById_fkey" FOREIGN KEY ("uploadedById") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."file_metadata" ADD CONSTRAINT "file_metadata_relatedTicketId_fkey" FOREIGN KEY ("relatedTicketId") REFERENCES "public"."support_tickets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."file_metadata" ADD CONSTRAINT "file_metadata_relatedReplyId_fkey" FOREIGN KEY ("relatedReplyId") REFERENCES "public"."ticket_replies"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."ImpersonationSession" ADD CONSTRAINT "ImpersonationSession_adminId_fkey" FOREIGN KEY ("adminId") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

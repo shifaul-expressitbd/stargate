@@ -16,12 +16,14 @@ import { CsrfMiddleware } from './common/middleware/csrf.middleware';
 import { UrlConfigService } from './config/url.config';
 import { validationSchema } from './config/validation.schema';
 import { DatabaseModule } from './database/database.module';
+import { FileModule } from './file/file.module';
 import { GoogleTagManagerModule } from './google-tag-manager/google-tag-manager.module';
 import { MailModule } from './mail/mail.module';
 import { MetaCapiContainerModule } from './meta-capi-container/meta-capi-container.module';
 import { MetaCapiRegionModule } from './meta-capi-region/meta-capi-region.module';
 import { SgtmContainerModule } from './sgtm-container/sgtm-container.module';
 import { SgtmRegionModule } from './sgtm-region/sgtm-region.module';
+import { SupportTicketsModule } from './support-tickets/support-tickets.module';
 import { UsersModule } from './users/users.module';
 import { LoggerService } from './utils/logger/logger.service';
 
@@ -35,7 +37,7 @@ import { LoggerService } from './utils/logger/logger.service';
     }),
     ScheduleModule.forRoot(),
     {
-      module: class {},
+      module: class { },
       providers: [UrlConfigService],
       exports: [UrlConfigService],
       global: true,
@@ -72,6 +74,8 @@ import { LoggerService } from './utils/logger/logger.service';
     GoogleTagManagerModule,
     MailModule,
     AdminModule,
+    SupportTicketsModule,
+    FileModule,
   ],
   controllers: [AppController],
   providers: [
@@ -97,4 +101,4 @@ import { LoggerService } from './utils/logger/logger.service';
     CsrfMiddleware,
   ],
 })
-export class AppModule {}
+export class AppModule { }
