@@ -105,12 +105,6 @@ export class FileController {
                     description: 'Optional preferred storage provider',
                     example: 's3'
                 },
-                category: {
-                    type: 'string',
-                    enum: ['document', 'image', 'video', 'audio', 'archive', 'other'],
-                    description: 'File category for organization',
-                    example: 'document'
-                }
             },
             required: []
         }
@@ -242,8 +236,7 @@ export class FileController {
             }
 
             const result = await this.fileService.uploadFiles(files, {
-                storageProvider: body?.storageProvider,
-                category: body?.category
+                storageProvider: body?.storageProvider
             });
             const duration = Date.now() - startTime;
 
@@ -261,13 +254,13 @@ export class FileController {
     }
 
     /**
-     * Download file by ID or filename with cross-provider support
+     * Download file by UUID with cross-provider support
      * Handles downloads from multiple storage backends with automatic URL generation
      */
-    @Get(':id')
+    @Get('id/:id')
     @ApiOperation({
-        summary: 'Download file by ID or filename',
-        description: `Download a file by its unique identifier (UUID) or filename with support for multiple storage providers.
+        summary: 'Download file by UUID',
+        description: `Download a file by its unique identifier (UUID) with support for multiple storage providers.
 
         **Cross-Provider Download Logic:**
         - **Local Storage**: Direct file system access with streaming
@@ -291,7 +284,7 @@ export class FileController {
     })
     @ApiParam({
         name: 'id',
-        description: 'Unique file identifier (UUID) or filename',
+        description: 'Unique file identifier (UUID)',
         example: '123e4567-e89b-12d3-a456-426614174000'
     })
     @ApiResponse({
@@ -378,12 +371,6 @@ export class FileController {
         @Response({ passthrough: true }) res: ExpressResponse,
     ): Promise<StreamableFile> {
         try {
-            // This endpoint handles UUID-based file access
-            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-            if (!uuidRegex.test(id)) {
-                throw new BadRequestException('Invalid UUID format for file ID');
-            }
-
             const result = await this.fileService.getFileById(id);
             const { metadata, stream, stats, mimeType } = result;
 
@@ -529,7 +516,7 @@ export class FileController {
 
         **Supported Query Parameters:**
         - page: Page number (default: 1, min: 1)
-        - limit: Items per page (default: 20, min: 1, max: 100)
+        - limit: Items per page (default: 10, min: 1, max: 100)
         - storageProvider: Filter by storage provider (local, s3, cloudinary, minio, google_cloud)
         - category: Filter by file category (document, image, video, audio, archive, other)
         - query: Search in filename or content
@@ -605,7 +592,7 @@ export class FileController {
         @Query('include') include?: string[],
     ) {
         const pageNum = page ? parseInt(page, 10) : 1;
-        const limitNum = limit ? parseInt(limit, 10) : 20;
+        const limitNum = limit ? parseInt(limit, 10) : 10;
         const minSizeNum = minSize ? parseInt(minSize, 10) : undefined;
         const maxSizeNum = maxSize ? parseInt(maxSize, 10) : undefined;
 

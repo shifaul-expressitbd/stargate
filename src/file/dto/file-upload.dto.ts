@@ -10,7 +10,6 @@ import {
     IsOptional,
     IsUUID
 } from 'class-validator';
-import { FileCategory } from '../interfaces/file-metadata.interface';
 import { StorageProvider } from '../interfaces/storage.interface';
 
 /**
@@ -64,14 +63,6 @@ export class FileUploadDto {
     })
     preserveOriginalName?: boolean = true;
 
-    @ApiPropertyOptional({
-        description: 'File category',
-        enum: FileCategory,
-        example: FileCategory.DOCUMENT,
-    })
-    @IsOptional()
-    @IsIn(Object.values(FileCategory))
-    category?: FileCategory;
 
     @ApiPropertyOptional({
         description: 'Preferred storage provider for the uploaded files. If not specified, the system will automatically select the optimal provider based on file type, size, and configured priorities.',
@@ -135,12 +126,6 @@ export class FileUploadResponseDto {
     })
     formattedSize?: string;
 
-    @ApiProperty({
-        description: 'File category',
-        enum: FileCategory,
-        example: FileCategory.DOCUMENT,
-    })
-    category?: FileCategory;
 
     @ApiProperty({
         description: 'Download URL',

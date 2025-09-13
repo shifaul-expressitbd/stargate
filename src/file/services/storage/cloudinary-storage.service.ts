@@ -630,9 +630,7 @@ export class CloudinaryStorageService extends AbstractStorageService {
 
         const filename = `${baseName}_${timestamp}_${random}`;
 
-        // Add prefix if configured
-        const prefix = this.cloudinaryConfig.folder ? `${this.cloudinaryConfig.folder}/` : '';
-        return prefix + filename;
+        return filename;
     }
 
     /**

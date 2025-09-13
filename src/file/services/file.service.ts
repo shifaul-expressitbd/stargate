@@ -7,6 +7,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FileMetadataDto } from '../dto/file-metadata.dto';
+import { FileCategory } from '../interfaces/file-metadata.interface';
 import { MulterFile } from '../interfaces/file-options.interface';
 import { StorageProvider } from '../interfaces/storage.interface';
 import { FileMetadataService } from './file-metadata.service';
@@ -45,6 +46,117 @@ function inferProviderFromResult(result: any): StorageProvider {
     return StorageProvider.LOCAL;
 }
 
+/**
+ * Auto-determine file category based on MIME type
+ */
+function autoDetermineCategory(mimeType: string, filename: string): FileCategory {
+    const mime = mimeType.toLowerCase();
+    const name = filename.toLowerCase();
+
+    // Image files
+    if (mime.startsWith('image/')) {
+        return FileCategory.IMAGE;
+    }
+
+    // Video files
+    if (mime.startsWith('video/')) {
+        return FileCategory.VIDEO;
+    }
+
+    // Audio files
+    if (mime.startsWith('audio/')) {
+        return FileCategory.AUDIO;
+    }
+
+    // Document files
+    if (
+        mime === 'application/pdf' ||
+        mime === 'application/msword' ||
+        mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        mime === 'text/plain' ||
+        mime === 'text/csv' ||
+        mime === 'application/rtf'
+    ) {
+        return FileCategory.DOCUMENT;
+    }
+
+    // Spreadsheet files
+    if (
+        mime === 'application/vnd.ms-excel' ||
+        mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        mime === 'application/vnd.ms-excel.sheet.macroenabled.12' ||
+        mime === 'text/csv'
+    ) {
+        return FileCategory.SPREADSHEET;
+    }
+
+    // Presentation files
+    if (
+        mime === 'application/vnd.ms-powerpoint' ||
+        mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ) {
+        return FileCategory.PRESENTATION;
+    }
+
+    // Archive files
+    if (
+        mime === 'application/zip' ||
+        mime === 'application/x-zip-compressed' ||
+        mime === 'application/x-rar-compressed' ||
+        mime === 'application/x-7z-compressed' ||
+        mime === 'application/gzip' ||
+        mime === 'application/x-tar' ||
+        name.endsWith('.zip') ||
+        name.endsWith('.rar') ||
+        name.endsWith('.7z') ||
+        name.endsWith('.gz') ||
+        name.endsWith('.tar')
+    ) {
+        return FileCategory.ARCHIVE;
+    }
+
+    // Code files
+    if (
+        mime === 'application/json' ||
+        mime === 'application/xml' ||
+        mime === 'application/javascript' ||
+        mime === 'application/typescript' ||
+        mime === 'text/html' ||
+        mime === 'text/css' ||
+        mime === 'text/javascript' ||
+        mime === 'text/typescript' ||
+        mime === 'text/x-python' ||
+        mime === 'text/x-java-source' ||
+        mime === 'text/x-c' ||
+        mime === 'text/x-cpp' ||
+        name.endsWith('.js') ||
+        name.endsWith('.ts') ||
+        name.endsWith('.jsx') ||
+        name.endsWith('.tsx') ||
+        name.endsWith('.py') ||
+        name.endsWith('.java') ||
+        name.endsWith('.c') ||
+        name.endsWith('.cpp') ||
+        name.endsWith('.cs') ||
+        name.endsWith('.php') ||
+        name.endsWith('.rb') ||
+        name.endsWith('.go') ||
+        name.endsWith('.rs') ||
+        name.endsWith('.swift') ||
+        name.endsWith('.kt')
+    ) {
+        return FileCategory.CODE;
+    }
+
+    // Text files
+    if (mime.startsWith('text/')) {
+        return FileCategory.TEXT;
+    }
+
+    // Default to OTHER for unknown types
+    return FileCategory.OTHER;
+}
+
 @Injectable()
 export class FileService {
     private readonly logger = new Logger(FileService.name);
@@ -63,7 +175,6 @@ export class FileService {
         file: MulterFile,
         metadata?: {
             originalName?: string;
-            category?: string;
             storageProvider?: string;
         }
     ): Promise<FileMetadataDto> {
@@ -79,11 +190,15 @@ export class FileService {
                 hasPath: !!file.path,
             });
 
+            // Auto-determine file category based on MIME type and filename
+            const autoCategory = autoDetermineCategory(file.mimetype, file.originalname);
+            this.logger.debug(`Auto-determined category for ${file.originalname}: ${autoCategory}`);
+
             // Upload file using storage manager with explicit provider if specified
             const uploadOptions: any = {
                 mimeType: file.mimetype,
                 metadata: {
-                    category: metadata?.category,
+                    category: autoCategory,
                 }
             };
 
@@ -131,7 +246,7 @@ export class FileService {
                 storageProvider: selectedProvider as string,
                 storageKey: uploadResult.key,
                 storageUrl: uploadResult.url,
-                category: metadata?.category,
+                category: autoCategory,
             });
 
             this.logger.log(`File upload completed successfully: ${fileMetadata.id}`, {
@@ -177,7 +292,6 @@ export class FileService {
             maxSize?: number;
             allowedTypes?: string[];
             storageProvider?: string;
-            category?: string;
         }
     ): Promise<{
         files: FileMetadataDto[];
@@ -194,7 +308,6 @@ export class FileService {
                 maxSize: options?.maxSize,
                 allowedTypes: options?.allowedTypes,
                 storageProvider: options?.storageProvider,
-                category: options?.category,
             });
 
             // Validate files
@@ -234,7 +347,6 @@ export class FileService {
                     this.logger.debug(`Uploading file: ${file.originalname}`);
                     const fileMetadata = await this.uploadFile(file, {
                         storageProvider: options?.storageProvider,
-                        category: options?.category,
                     });
                     uploadedFiles.push(fileMetadata);
                     totalSize += file.size;
