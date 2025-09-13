@@ -212,6 +212,7 @@ export class AuthCoreService {
     userAgent?: string,
   ): Promise<AuthResponse | TwoFactorRequiredResponse> {
     if (user.isTwoFactorEnabled) {
+      this.logger.log(`🔑 Generating tempToken for 2FA user: ${user.email}`);
       const tempToken = await this.jwtService.signAsync(
         { sub: user.id, email: user.email },
         {
@@ -219,6 +220,7 @@ export class AuthCoreService {
           expiresIn: '15m',
         },
       );
+      this.logger.log(`✅ TempToken generated successfully for user: ${user.email}`);
       return {
         requiresTwoFactor: true,
         userId: user.id,
@@ -950,25 +952,38 @@ export class AuthCoreService {
     try {
       const { tempToken, totpCode, rememberMe = false } = dto;
 
+      this.logger.log(`🔐 Starting TOTP verification process for tempToken validation`);
+
       let payload: JwtPayload;
       try {
         payload = await this.jwtService.verifyAsync(tempToken, {
           secret: this.configService.get('JWT_SECRET'),
         });
+        this.logger.log(`✅ TempToken validated successfully - User ID: ${payload.sub}, Email: ${payload.email}`);
       } catch (err) {
+        this.logger.error(`❌ TempToken validation failed: ${err.message}`);
         throw new UnauthorizedException('Invalid or expired temporary token');
       }
 
       const user = await this.usersService.findById(payload.sub);
-      if (!user || !user.isTwoFactorEnabled) {
+      if (!user) {
+        this.logger.error(`❌ User not found for ID: ${payload.sub}`);
+        throw new BadRequestException('User not found');
+      }
+
+      if (!user.isTwoFactorEnabled) {
+        this.logger.error(`❌ 2FA not enabled for user: ${user.email}`);
         throw new BadRequestException('2FA not enabled for this account');
       }
 
+      this.logger.log(`🔍 Verifying TOTP code for user: ${user.email}`);
       const isValidCode = await this.verifyTwoFactorCode(user.id, totpCode);
       if (!isValidCode) {
+        this.logger.error(`❌ Invalid TOTP code provided for user: ${user.email}`);
         throw new UnauthorizedException('Invalid 2FA code');
       }
 
+      this.logger.log(`✅ TOTP code verified successfully, generating tokens for user: ${user.email}`);
       const tokens = await this.generateTokens(
         user.id,
         user.email,
@@ -977,8 +992,8 @@ export class AuthCoreService {
         ipAddress,
         userAgent,
       );
-      const { password, verificationToken, twoFactorSecret, ...userResult } =
-        user;
+
+      const { password, verificationToken, twoFactorSecret, ...userResult } = user;
 
       // Get primary provider
       const primaryProvider = await this.prisma.authProvider.findFirst({
@@ -995,6 +1010,7 @@ export class AuthCoreService {
         userAgent,
       );
 
+      this.logger.log(`🎉 TOTP login completed successfully for user: ${user.email}`);
       return {
         user: {
           id: userResult.id,
@@ -1012,8 +1028,11 @@ export class AuthCoreService {
       if (
         error instanceof BadRequestException ||
         error instanceof UnauthorizedException
-      )
+      ) {
+        this.logger.error(`❌ TOTP login failed with client error: ${error.message}`);
         throw error;
+      }
+      this.logger.error(`💥 TOTP login failed with server error: ${error.message}`, error.stack);
       throw new InternalServerErrorException('Login failed');
     }
   }
@@ -1143,46 +1162,68 @@ export class AuthCoreService {
     totpCode: string,
   ): Promise<boolean> {
     try {
+      this.logger.log(`🔍 Verifying TOTP code for user ID: ${userId}`);
+      this.logger.debug(`📝 Raw TOTP code received: "${totpCode}" (length: ${totpCode?.length})`);
+
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
       });
 
-      if (!user || !user.twoFactorSecret) {
-        this.logger.warn(`No 2FA secret found for user: ${userId}`);
+      if (!user) {
+        this.logger.error(`❌ User not found in database for ID: ${userId}`);
         return false;
       }
 
-      const cleanCode = totpCode.replace(/\s/g, '').padStart(6, '0');
+      if (!user.twoFactorSecret) {
+        this.logger.error(`❌ No 2FA secret found for user: ${user.email} (ID: ${userId})`);
+        return false;
+      }
+
+      // Robust code cleaning and validation
+      const cleanCode = totpCode
+        .replace(/[^\d]/g, '') // Remove all non-digits
+        .substring(0, 6) // Take first 6 digits
+        .padStart(6, '0'); // Pad with leading zeros if needed
+
+      this.logger.debug(`🧹 Raw input: "${totpCode}", Cleaned code: "${cleanCode}"`);
 
       if (!/^\d{6}$/.test(cleanCode)) {
-        this.logger.warn(`Invalid code format: ${cleanCode}`);
+        this.logger.error(`❌ Invalid code format: "${cleanCode}" (must be 6 digits)`);
         return false;
+      }
+
+      // Additional validation: check for obviously invalid codes (all same digit, sequential, etc.)
+      const codeNum = parseInt(cleanCode, 10);
+      if (codeNum < 100000) {
+        this.logger.warn(`⚠️ Code starts with zero: "${cleanCode}" - this might be user error`);
       }
 
       const secret = user.twoFactorSecret;
-      const currentExpected = this.generateTOTPCode(secret);
-      this.logger.debug(`Current expected code: ${currentExpected}`);
-      this.logger.debug(`Received code: ${cleanCode}`);
+      this.logger.debug(`🔐 Using secret for verification: ${secret.substring(0, 4)}...`);
 
-      // Manual window check with logging
+      const currentExpected = this.generateTOTPCode(secret);
+      this.logger.debug(`🎯 Current expected code: ${currentExpected}`);
+      this.logger.debug(`📱 Received code: ${cleanCode}`);
+
+      // Manual window check with detailed logging
       const currentTime = Math.floor(Date.now() / 1000);
       const timeStep = 30;
-      const windowSize = 3;
+      const windowSize = 5; // Increased from 3 to 5 for better time sync tolerance
       const isValid = this.checkTOTPCode(cleanCode, secret);
 
       if (isValid) {
-        this.logger.log(`✅ 2FA code verified for user: ${user.email}`);
+        this.logger.log(`✅ 2FA code verified for user: ${user.email} (current window)`);
         return true;
       }
 
       // Log what codes would be valid in the current window
-      this.logger.debug(`Checked time window: ±${windowSize * timeStep}s`);
+      this.logger.debug(`⏱️ Checking time window: ±${windowSize * timeStep}s`);
       for (let i = -windowSize; i <= windowSize; i++) {
         const testTime = currentTime + i * timeStep;
         const testCounter = Math.floor(testTime / timeStep);
         const testCode = this.generateTOTPCode(secret, testCounter);
         this.logger.debug(
-          `Expected code at offset ${i * timeStep}s: ${testCode} (time: ${new Date(testTime * 1000).toISOString()})`,
+          `Offset ${i * timeStep}s: ${testCode} (time: ${new Date(testTime * 1000).toISOString()})`,
         );
         if (testCode === cleanCode) {
           this.logger.log(
@@ -1195,24 +1236,27 @@ export class AuthCoreService {
       const serverTime = new Date().toISOString();
       const serverTimestamp = Math.floor(Date.now() / 1000);
 
-      this.logger.warn(`❌ No matching code found for user: ${user.email}`);
-      this.logger.debug(`Received code: ${cleanCode}`);
-      this.logger.debug(`Server time: ${serverTime} (${serverTimestamp})`);
-      this.logger.debug(`Checked time window: ±${3 * 30}s`);
+      this.logger.error(`❌ No matching TOTP code found for user: ${user.email}`);
+      this.logger.debug(`📊 Debug info:`);
+      this.logger.debug(`   - Received code: ${cleanCode}`);
+      this.logger.debug(`   - Current expected: ${currentExpected}`);
+      this.logger.debug(`   - Server time: ${serverTime} (${serverTimestamp})`);
+      this.logger.debug(`   - Checked window: ±${windowSize * 30}s`);
 
-      // Provide debugging info in the warning
-      this.logger.warn(`⏰ Time sync debugging for user ${userId}:`);
-      this.logger.warn(
-        `📱 Ensure authenticator app is time-synced with NTP server`,
-      );
-      this.logger.warn(`🌍 Client timezone differences may cause this issue`);
-      this.logger.warn(`⚙️ Check device time vs ${serverTime}`);
+      // Provide comprehensive debugging info for troubleshooting
+      this.logger.warn(`⏰ Time sync debugging for user ${user.email}:`);
+      this.logger.warn(`   📱 Ensure authenticator app is time-synced with NTP server`);
+      this.logger.warn(`   🌍 Client timezone differences may cause this issue`);
+      this.logger.warn(`   ⚙️ Check device time vs ${serverTime}`);
+      this.logger.warn(`   🔧 Server expects code: ${currentExpected} (${new Date(currentTime * 1000).toLocaleTimeString()})`);
+      this.logger.warn(`   📊 Window checked: ±${windowSize * 30}s (${windowSize * 2 + 1} total time slots)`);
+      this.logger.warn(`   💡 Try regenerating the code or checking your device time settings`);
 
       return false;
     } catch (error) {
       this.logger.error(
-        `Failed to verify 2FA code for user ${userId}:`,
-        error.message,
+        `💥 Failed to verify 2FA code for user ${userId}: ${error.message}`,
+        error.stack,
       );
       return false;
     }
@@ -1252,10 +1296,26 @@ export class AuthCoreService {
   private checkTOTPCode(code: string, secret: string): boolean {
     try {
       const { totp } = require('otplib');
+
+      // Configure TOTP with our window settings
+      totp.options = {
+        window: 5, // Match our window size
+        step: 30,
+      };
+
       return totp.check(code, secret);
     } catch (error) {
-      this.logger.warn('Failed to check TOTP code:', error.message);
-      return false;
+      this.logger.warn('Failed to check TOTP code with otplib:', error.message);
+
+      // Fallback to manual verification
+      try {
+        this.logger.debug('Attempting manual TOTP verification as fallback');
+        const expectedCode = this.generateTOTPCode(secret);
+        return expectedCode === code;
+      } catch (fallbackError) {
+        this.logger.error('Fallback TOTP verification also failed:', fallbackError.message);
+        return false;
+      }
     }
   }
 

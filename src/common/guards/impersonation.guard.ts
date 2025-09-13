@@ -1,8 +1,9 @@
 // src/common/guards/impersonation.guard.ts
-import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
 import { UsersService } from '../../users/users.service';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 @Injectable()
 export class ImpersonationGuard implements CanActivate {
@@ -10,10 +11,22 @@ export class ImpersonationGuard implements CanActivate {
     private reflector: Reflector,
     private configService: ConfigService,
     private usersService: UsersService,
-  ) {}
+  ) { }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
+    const handler = context.getHandler();
+    const controller = context.getClass();
+
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      handler,
+      controller,
+    ]);
+
+    if (isPublic) {
+      return true;
+    }
+
     const targetUserId = request.headers['x-impersonate-user'];
 
     if (!targetUserId) return true;

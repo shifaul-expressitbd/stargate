@@ -33,7 +33,7 @@ export class TwoFactorService {
   private readonly appName = 'StarGate Platform';
 
   private readonly totpOptions = {
-    window: 3,
+    window: 5, // Increased from 3 to 5 for better time sync tolerance (150 seconds)
     step: 30,
   };
 
@@ -41,7 +41,7 @@ export class TwoFactorService {
     algorithm: 'SHA1' as const,
     digits: 6,
     step: 30,
-    window: 3,
+    window: 5, // Increased from 3 to 5 for better time sync tolerance
   };
 
   constructor(
@@ -252,7 +252,7 @@ export class TwoFactorService {
 
       throw new UnauthorizedException(
         `Invalid verification code. Server expected: ${currentCode} (${timeInfo}). ` +
-          'Please check your device time synchronization.',
+        'Please check your device time synchronization.',
       );
     }
 

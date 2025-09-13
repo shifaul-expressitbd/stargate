@@ -239,6 +239,7 @@ export class AuthController {
         loginDto.password,
       );
 
+      this.logger.log(`🔐 Login attempt for user: ${loginDto.email}, IP: ${req.ip}`);
       const result = await this.authCoreService.login(
         user,
         loginDto.rememberMe,
@@ -247,12 +248,14 @@ export class AuthController {
       );
 
       if ('requiresTwoFactor' in result) {
+        this.logger.log(`🔑 2FA required for user: ${loginDto.email}, tempToken generated`);
         return this.createSuccessResponse(
           'Two-factor authentication required',
           result,
         );
       }
 
+      this.logger.log(`✅ Login successful for user: ${loginDto.email}`);
       return this.createSuccessResponse('Login successful', result);
     } catch (error) {
       this.logger.error('Login failed:', error.message);

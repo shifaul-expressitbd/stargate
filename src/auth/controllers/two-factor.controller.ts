@@ -21,6 +21,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
+import { Public } from '../../common/decorators/public.decorator';
 import { User } from '../../common/decorators/user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
@@ -54,7 +55,7 @@ export class TwoFactorController {
     private readonly twoFactorService: TwoFactorService,
     private readonly authCoreService: AuthCoreService,
     private readonly sessionService: SessionService,
-  ) {}
+  ) { }
 
   private createSuccessResponse<T>(message: string, data?: T): ApiResponse<T> {
     return {
@@ -482,6 +483,7 @@ export class TwoFactorController {
 
   // ========== PUBLIC 2FA ENDPOINTS ==========
 
+  @Public()
   @Throttle({ default: { limit: 5, ttl: 300 } })
   @Post('login/totp')
   @HttpCode(HttpStatus.OK)
@@ -537,23 +539,35 @@ export class TwoFactorController {
     @Req() req: Request,
   ): Promise<ApiResponse> {
     try {
+      this.logger.log(`🔐 TOTP login attempt - IP: ${req.ip}, User-Agent: ${req.get('User-Agent')}`);
+      this.logger.debug(`📝 Request payload: tempToken present: ${!!dto.tempToken}, totpCode length: ${dto.totpCode?.length}, rememberMe: ${dto.rememberMe}`);
+      this.logger.debug(`🔍 Request headers: Authorization: ${req.headers.authorization ? 'Present' : 'Missing'}, Content-Type: ${req.headers['content-type']}`);
+      this.logger.debug(`🔍 Request method: ${req.method}, URL: ${req.url}`);
+
       const result = await this.authCoreService.loginWithTwoFactor(
         dto,
         req.ip,
         req.get('User-Agent'),
       );
+      this.logger.log(`✅ TOTP login successful`);
       return this.createSuccessResponse(
         'Two-factor authentication successful',
         result,
       );
     } catch (error) {
-      this.logger.error('2FA login failed:', error.message);
+      this.logger.error(`❌ TOTP login failed: ${error.message}`);
+      this.logger.debug(`🔍 Error details:`, {
+        statusCode: error.status,
+        name: error.name,
+        stack: error.stack
+      });
       throw new UnauthorizedException(
         this.createErrorResponse(error.message, '2FA_ERROR', 'LOGIN_FAILED'),
       );
     }
   }
 
+  @Public()
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login/backup-code')
   @HttpCode(HttpStatus.OK)
