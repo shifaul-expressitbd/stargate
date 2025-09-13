@@ -70,7 +70,7 @@ import { LoggerService } from './utils/logger/logger.service';
     // Static file serving for uploads folder
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),
-      serveRoot: '/uploads',
+      serveRoot: '/files',
       serveStaticOptions: {
         index: false, // Don't serve index.html
         setHeaders: (res, path) => {

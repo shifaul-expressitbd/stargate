@@ -40,15 +40,18 @@ export class PublicFileController {
         @Query('download') download: boolean,
         @Response({ passthrough: true }) res: ExpressResponse,
     ): Promise<StreamableFile> {
+        // Decode URL-encoded filename parameter
+        const decodedFilename = decodeURIComponent(filename);
+
         try {
             let result;
 
             try {
                 // First try to get file by exact filename match
-                result = await this.fileService.getFileByFilename(filename);
+                result = await this.fileService.getFileByFilename(decodedFilename);
             } catch (error) {
                 // If not found by exact match, try to find file in organized directories
-                result = await this.findFileInOrganizedStructure(filename);
+                result = await this.findFileInOrganizedStructure(decodedFilename);
             }
 
             const { metadata, stream, stats, mimeType } = result;
@@ -71,7 +74,7 @@ export class PublicFileController {
             const readableStream = stream as any;
             return new StreamableFile(readableStream);
         } catch (error) {
-            this.logger.error(`File download failed for ${filename}: ${error.message}`, error.stack);
+            this.logger.error(`File download failed for ${decodedFilename}: ${error.message}`, error.stack);
             throw error;
         }
     }

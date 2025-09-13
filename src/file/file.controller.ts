@@ -476,8 +476,11 @@ export class FileController {
         @Query('download') download: boolean,
         @Response({ passthrough: true }) res: ExpressResponse,
     ): Promise<StreamableFile> {
+        // Decode URL-encoded filename parameter
+        const decodedFilename = decodeURIComponent(filename);
+
         try {
-            const result = await this.fileService.getFileByFilename(filename);
+            const result = await this.fileService.getFileByFilename(decodedFilename);
             const { metadata, stream, stats, mimeType } = result;
 
             if (!stream) {
@@ -498,7 +501,7 @@ export class FileController {
             const readableStream = stream as any;
             return new StreamableFile(readableStream);
         } catch (error) {
-            this.logger.error(`File download failed for ${filename}: ${error.message}`, error.stack);
+            this.logger.error(`File download failed for ${decodedFilename}: ${error.message}`, error.stack);
             throw error;
         }
     }

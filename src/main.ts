@@ -1,5 +1,5 @@
 // src/main.ts
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
@@ -23,7 +23,9 @@ async function bootstrap() {
   app.use((req, res, next) => csrfMiddleware.use(req, res, next));
 
   // Set global prefix
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', {
+    exclude: [{ path: 'files*', method: RequestMethod.ALL }],
+  });
 
   // Get config service
   const configService = app.get(ConfigService);
