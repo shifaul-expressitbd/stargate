@@ -103,7 +103,7 @@ export class SupportTicketsService {
 
     async getTickets(userId: string, query: TicketQueryDto, userRoles: string[] = []) {
         try {
-            const { page = 1, limit = 10, status, priority, search, sortBy = 'createdAt', sortOrder = 'desc' } = query;
+            const { page = 1, limit = 10, status, priority, search, sortBy = 'createdAt', sortOrder = 'desc', assigneeId, creatorId } = query;
 
             // Build where clause
             const where: any = {};
@@ -117,6 +117,20 @@ export class SupportTicketsService {
                 if (status) {
                     where.status = status;
                 }
+            }
+
+            if (assigneeId) {
+                if (!isStaff && assigneeId !== userId) {
+                    throw new ForbiddenException('You can only filter tickets assigned to yourself');
+                }
+                where.assignedToId = assigneeId;
+            }
+
+            if (creatorId) {
+                if (!isStaff && creatorId !== userId) {
+                    throw new ForbiddenException('You can only filter tickets created by yourself');
+                }
+                where.createdById = creatorId;
             }
 
             if (priority) {
@@ -399,7 +413,7 @@ export class SupportTicketsService {
         }
     }
 
-    async createReply(ticketId: string, userId: string, dto: CreateTicketReplyDto, userRoles: string[] = []) {
+    async createReply(ticketId: string, userId: string, dto: CreateTicketReplyDto, userRoles: string[] = [], files?: Express.Multer.File[]) {
         try {
             // Check if ticket exists and user has permission
             const ticket = await this.getTicketById(ticketId, userId, userRoles);
@@ -407,15 +421,16 @@ export class SupportTicketsService {
             // Check if user can reply to this ticket
             const isStaff = userRoles.includes('admin') || userRoles.includes('staff') || userRoles.includes('support');
             const isTicketOwner = ticket.createdById === userId;
+            const isAssignedStaff = isStaff && ticket.assignedToId === userId;
 
-            // Internal replies can only be made by staff
-            if (dto.isInternal && !isStaff) {
-                throw new ForbiddenException('Only staff members can create internal replies');
+            // Internal replies can only be made by assigned staff
+            if (dto.isInternal && !isAssignedStaff) {
+                throw new ForbiddenException('Only assigned staff members can create internal replies');
             }
 
-            // Non-internal replies can be made by ticket owner or staff
-            if (!dto.isInternal && !isTicketOwner && !isStaff) {
-                throw new ForbiddenException('You can only reply to your own tickets');
+            // Non-internal replies can be made by ticket owner or assigned staff
+            if (!dto.isInternal && !isTicketOwner && !isAssignedStaff) {
+                throw new ForbiddenException('You can only reply to your own tickets or tickets assigned to you');
             }
 
             const reply = await this.prisma.ticketReply.create({
@@ -435,6 +450,33 @@ export class SupportTicketsService {
                     },
                 },
             });
+
+            // Handle uploaded files if provided
+            if (files && files.length > 0) {
+                const uploadedFileUrls = await this.uploadFilesToReply(reply.id, ticketId, files, userId, userRoles);
+                if (uploadedFileUrls && uploadedFileUrls.files && uploadedFileUrls.files.length > 0) {
+                    // Extract file URLs from the upload result
+                    const fileUrls: string[] = [];
+                    uploadedFileUrls.files.forEach(file => {
+                        if (file.downloadUrl) {
+                            fileUrls.push(file.downloadUrl);
+                        }
+                    });
+
+                    // Update reply with file URLs
+                    if (fileUrls.length > 0) {
+                        await this.prisma.ticketReply.update({
+                            where: { id: reply.id },
+                            data: {
+                                fileUrls: fileUrls,
+                            },
+                        });
+
+                        // Add fileUrls to the returned reply object
+                        (reply as any).fileUrls = fileUrls;
+                    }
+                }
+            }
 
             // Update ticket's updatedAt timestamp
             await this.prisma.supportTicket.update({

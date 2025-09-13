@@ -305,8 +305,7 @@ model SupportTicket {
   replies        TicketReply[]
   reopenRequests TicketReopenRequest[]
 
-  fileUrls     String[]       @default([])
-  FileMetadata FileMetadata[]
+  fileUrls String[] @default([])
 
   @@index([status])
   @@index([priority])
@@ -326,10 +325,9 @@ model TicketReply {
   content    String
   isInternal Boolean @default(false)
 
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  fileUrls     String[]       @default([])
-  FileMetadata FileMetadata[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  fileUrls  String[] @default([])
 
   @@index([ticketId])
   @@index([authorId])
@@ -378,13 +376,9 @@ model FileMetadata {
   storageKey      String? @unique
   storageUrl      String?
 
-  createdAt       DateTime       @default(now())
-  User            User?          @relation(fields: [userId], references: [id])
-  userId          String?
-  SupportTicket   SupportTicket? @relation(fields: [supportTicketId], references: [id])
-  supportTicketId String?
-  TicketReply     TicketReply?   @relation(fields: [ticketReplyId], references: [id])
-  ticketReplyId   String?
+  createdAt DateTime @default(now())
+  User      User?    @relation(fields: [userId], references: [id])
+  userId    String?
 
   @@index([category])
   @@index([securityStatus])

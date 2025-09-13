@@ -525,7 +525,7 @@ export class FileMetadataService {
             isDocument,
             canPreview,
             // Add download URL (would be constructed by controller)
-            downloadUrl: `/api/files/${fileMetadata.id}`,
+            downloadUrl: `/api/files/id/${fileMetadata.id}`,
         };
     }
 

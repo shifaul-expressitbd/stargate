@@ -2,7 +2,6 @@ import {
     BadRequestException,
     Body,
     Controller,
-    Delete,
     Get,
     Param,
     Post,
@@ -30,8 +29,6 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { CreateReopenRequestDto } from './dto/create-reopen-request.dto';
 import { CreateSupportTicketDto } from './dto/create-support-ticket.dto';
 import { CreateTicketReplyDto } from './dto/create-ticket-reply.dto';
-import { ReplyFileUploadDto } from './dto/reply-file-upload.dto';
-import { TicketFileUploadDto } from './dto/ticket-file-upload.dto';
 import { TicketQueryDto } from './dto/ticket-query.dto';
 import { UpdateSupportTicketDto } from './dto/update-support-ticket.dto';
 import { SupportTicketsService } from './support-tickets.service';
@@ -190,6 +187,120 @@ export class SupportTicketsController {
         @Query() query: TicketQueryDto,
     ): Promise<ApiResponse> {
         const result = await this.supportTicketsService.getTickets(user.id, query, user.roles);
+        return this.createPaginatedResponse(
+            'Support tickets retrieved successfully',
+            result.tickets,
+            result.pagination,
+        );
+    }
+
+    @Get('assignee/:assigneeId')
+    @ApiOperation({ summary: 'Get support tickets assigned to a specific assignee' })
+    @ApiParam({ name: 'assigneeId', description: 'Assignee ID' })
+    @ApiQuery({ name: 'page', required: false, type: Number })
+    @ApiQuery({ name: 'limit', required: false, type: Number })
+    @ApiQuery({ name: 'status', required: false, enum: ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'] })
+    @ApiQuery({ name: 'priority', required: false, enum: ['LOW', 'NORMAL', 'HIGH', 'URGENT'] })
+    @ApiQuery({ name: 'search', required: false, type: String })
+    @ApiQuery({ name: 'sortBy', required: false, enum: ['createdAt', 'updatedAt', 'priority', 'status'] })
+    @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'] })
+    @ApiResponse({
+        status: 200,
+        description: 'Tickets retrieved successfully',
+        schema: {
+            example: {
+                success: true,
+                message: 'Support tickets retrieved successfully',
+                data: [
+                    {
+                        id: 'ticket-id',
+                        title: 'Issue with login',
+                        status: 'OPEN',
+                        priority: 'NORMAL',
+                        createdAt: '2023-01-01T00:00:00.000Z',
+                        createdBy: {
+                            id: 'user-id',
+                            email: 'user@example.com',
+                            name: 'User Name',
+                        },
+                        assignedTo: {
+                            id: 'assignee-id',
+                            email: 'assignee@example.com',
+                            name: 'Assignee Name',
+                        },
+                        _count: { replies: 2 },
+                    },
+                ],
+                pagination: {
+                    page: 1,
+                    limit: 10,
+                    total: 25,
+                    totalPages: 3,
+                },
+            },
+        },
+    })
+    async getTicketsByAssignee(
+        @Param('assigneeId') assigneeId: string,
+        @Query() query: TicketQueryDto,
+        @User() user: any,
+    ): Promise<ApiResponse> {
+        const result = await this.supportTicketsService.getTickets(user.id, { ...query, assigneeId }, user.roles);
+        return this.createPaginatedResponse(
+            'Support tickets retrieved successfully',
+            result.tickets,
+            result.pagination,
+        );
+    }
+
+    @Get('user/:userId')
+    @ApiOperation({ summary: 'Get support tickets created by a specific user' })
+    @ApiParam({ name: 'userId', description: 'User ID' })
+    @ApiQuery({ name: 'page', required: false, type: Number })
+    @ApiQuery({ name: 'limit', required: false, type: Number })
+    @ApiQuery({ name: 'status', required: false, enum: ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'] })
+    @ApiQuery({ name: 'priority', required: false, enum: ['LOW', 'NORMAL', 'HIGH', 'URGENT'] })
+    @ApiQuery({ name: 'search', required: false, type: String })
+    @ApiQuery({ name: 'sortBy', required: false, enum: ['createdAt', 'updatedAt', 'priority', 'status'] })
+    @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'] })
+    @ApiResponse({
+        status: 200,
+        description: 'Tickets retrieved successfully',
+        schema: {
+            example: {
+                success: true,
+                message: 'Support tickets retrieved successfully',
+                data: [
+                    {
+                        id: 'ticket-id',
+                        title: 'Issue with login',
+                        status: 'OPEN',
+                        priority: 'NORMAL',
+                        createdAt: '2023-01-01T00:00:00.000Z',
+                        createdBy: {
+                            id: 'user-id',
+                            email: 'user@example.com',
+                            name: 'User Name',
+                        },
+                        assignedTo: null,
+                        _count: { replies: 2 },
+                    },
+                ],
+                pagination: {
+                    page: 1,
+                    limit: 10,
+                    total: 25,
+                    totalPages: 3,
+                },
+            },
+        },
+    })
+    async getTicketsByUser(
+        @Param('userId') userId: string,
+        @Query() query: TicketQueryDto,
+        @User() user: any,
+    ): Promise<ApiResponse> {
+        const result = await this.supportTicketsService.getTickets(user.id, { ...query, creatorId: userId }, user.roles);
         return this.createPaginatedResponse(
             'Support tickets retrieved successfully',
             result.tickets,
@@ -367,8 +478,10 @@ export class SupportTicketsController {
     }
 
     @Post(':id/replies')
+    @UseInterceptors(FilesInterceptor('attachments'))
     @ApiOperation({ summary: 'Add a reply to a support ticket' })
     @ApiParam({ name: 'id', description: 'Ticket ID' })
+    @ApiConsumes('multipart/form-data')
     @ApiBody({
         schema: {
             type: 'object',
@@ -382,7 +495,16 @@ export class SupportTicketsController {
                     type: 'boolean',
                     description: 'Whether this reply is internal (staff only)',
                     example: false,
-                }
+                },
+                attachments: {
+                    type: 'array',
+                    items: {
+                        type: 'string',
+                        format: 'binary',
+                    },
+                    description: 'Files to upload and attach to the reply',
+                    example: ['file1.jpg', 'file2.pdf'],
+                },
             },
         },
     })
@@ -398,6 +520,7 @@ export class SupportTicketsController {
                     content: 'Thank you for your patience',
                     isInternal: false,
                     createdAt: '2023-01-01T00:00:00.000Z',
+                    fileUrls: ['/api/files/id/123e4567-e89b-12d3-a456-426614174000'],
                     author: {
                         id: 'user-id',
                         email: 'user@example.com',
@@ -411,8 +534,9 @@ export class SupportTicketsController {
         @Param('id') ticketId: string,
         @Body() dto: CreateTicketReplyDto,
         @User() user: any,
+        @UploadedFiles() files: Express.Multer.File[],
     ): Promise<ApiResponse> {
-        const reply = await this.supportTicketsService.createReply(ticketId, user.id, dto, user.roles);
+        const reply = await this.supportTicketsService.createReply(ticketId, user.id, dto, user.roles, files);
         return this.createSuccessResponse('Reply added successfully', reply);
     }
 
@@ -486,169 +610,5 @@ export class SupportTicketsController {
             user.roles,
         );
         return this.createSuccessResponse('Reopen request processed successfully', request);
-    }
-
-    @Post(':id/files')
-    @UseInterceptors(FilesInterceptor('files'))
-    @ApiOperation({ summary: 'Upload files to an existing support ticket' })
-    @ApiParam({ name: 'id', description: 'Ticket ID' })
-    @ApiBody({
-        schema: {
-            type: 'object',
-            properties: {
-                ticketId: {
-                    type: 'string',
-                    format: 'uuid',
-                    description: 'Ticket ID to associate the uploaded files with',
-                    example: '123e4567-e89b-12d3-a456-426614174000',
-                },
-                description: {
-                    type: 'string',
-                    description: 'Optional description for the uploaded files',
-                    example: 'Screenshots of the error',
-                },
-            },
-        },
-    })
-    @ApiResponse({
-        status: 201,
-        description: 'Files uploaded successfully',
-        schema: {
-            example: {
-                success: true,
-                message: 'Files uploaded successfully',
-                data: {
-                    files: [
-                        {
-                            id: 'file-id',
-                            filename: 'document.pdf',
-                            originalName: 'my-document.pdf',
-                            mimeType: 'application/pdf',
-                            size: 1024000,
-                            path: 'uploads/2024/01/document.pdf',
-                            createdAt: '2024-01-01T00:00:00.000Z',
-                        },
-                    ],
-                    totalSize: 1024000,
-                    duration: 1500,
-                    success: true,
-                },
-            },
-        },
-    })
-    async uploadFilesToTicket(
-        @Param('id') ticketId: string,
-        @Body() dto: TicketFileUploadDto,
-        @UploadedFiles() files: Express.Multer.File[],
-        @User() user: any,
-    ): Promise<ApiResponse> {
-        const result = await this.supportTicketsService.uploadFilesToTicket(ticketId, files, user.id);
-        return this.createSuccessResponse('Files uploaded successfully', result);
-    }
-
-    @Post(':id/replies/:replyId/files')
-    @UseInterceptors(FilesInterceptor('files'))
-    @ApiOperation({ summary: 'Upload files to an existing ticket reply' })
-    @ApiParam({ name: 'id', description: 'Ticket ID' })
-    @ApiParam({ name: 'replyId', description: 'Reply ID' })
-    @ApiBody({
-        schema: {
-            type: 'object',
-            properties: {
-                replyId: {
-                    type: 'string',
-                    format: 'uuid',
-                    description: 'Reply ID to associate the uploaded files with',
-                    example: '123e4567-e89b-12d3-a456-426614174000',
-                },
-                description: {
-                    type: 'string',
-                    description: 'Optional description for the uploaded files',
-                    example: 'Additional documentation',
-                },
-            },
-        },
-    })
-    @ApiResponse({
-        status: 201,
-        description: 'Files uploaded successfully',
-        schema: {
-            example: {
-                success: true,
-                message: 'Files uploaded successfully',
-                data: {
-                    files: [
-                        {
-                            id: 'file-id',
-                            filename: 'image.png',
-                            originalName: 'screenshot.png',
-                            mimeType: 'image/png',
-                            size: 512000,
-                            path: 'uploads/2024/01/image.png',
-                            createdAt: '2024-01-01T00:00:00.000Z',
-                        },
-                    ],
-                    totalSize: 512000,
-                    duration: 800,
-                    success: true,
-                },
-            },
-        },
-    })
-    async uploadFilesToReply(
-        @Param('id') ticketId: string,
-        @Param('replyId') replyId: string,
-        @Body() dto: ReplyFileUploadDto,
-        @UploadedFiles() files: Express.Multer.File[],
-        @User() user: any,
-    ): Promise<ApiResponse> {
-        const result = await this.supportTicketsService.uploadFilesToReply(replyId, ticketId, files, user.id, user.roles);
-        return this.createSuccessResponse('Files uploaded successfully', result);
-    }
-
-    @Delete(':id/files/:fileId')
-    @ApiOperation({ summary: 'Remove attachment from a support ticket' })
-    @ApiParam({ name: 'id', description: 'Ticket ID' })
-    @ApiParam({ name: 'fileId', description: 'File ID' })
-    @ApiResponse({
-        status: 200,
-        description: 'File removed successfully',
-    })
-    @ApiResponse({
-        status: 404,
-        description: 'File not found or not attached to ticket',
-    })
-    async removeFileFromTicket(
-        @Param('id') ticketId: string,
-        @Param('fileId') fileId: string,
-        @User() user: any,
-        @Query() query: any,
-    ): Promise<ApiResponse> {
-        await this.supportTicketsService.removeFileFromTicket(ticketId, fileId, user.id, user.roles);
-        return this.createSuccessResponse('File removed successfully', null);
-    }
-
-    @Delete(':id/replies/:replyId/files/:fileId')
-    @ApiOperation({ summary: 'Remove attachment from a ticket reply' })
-    @ApiParam({ name: 'id', description: 'Ticket ID' })
-    @ApiParam({ name: 'replyId', description: 'Reply ID' })
-    @ApiParam({ name: 'fileId', description: 'File ID' })
-    @ApiResponse({
-        status: 200,
-        description: 'File removed successfully',
-    })
-    @ApiResponse({
-        status: 404,
-        description: 'File not found or not attached to reply',
-    })
-    async removeFileFromReply(
-        @Param('id') ticketId: string,
-        @Param('replyId') replyId: string,
-        @Param('fileId') fileId: string,
-        @User() user: any,
-        @Query() query: any,
-    ): Promise<ApiResponse> {
-        await this.supportTicketsService.removeFileFromReply(ticketId, replyId, fileId, user.id, user.roles);
-        return this.createSuccessResponse('File removed successfully', null);
     }
 }

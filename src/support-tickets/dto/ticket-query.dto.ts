@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Priority, TicketStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
 export class TicketQueryDto {
     @ApiPropertyOptional({ enum: TicketStatus, example: TicketStatus.OPEN })
@@ -18,6 +18,16 @@ export class TicketQueryDto {
     @IsString()
     @IsOptional()
     search?: string;
+
+    @ApiPropertyOptional({ example: 'uuid-string' })
+    @IsUUID()
+    @IsOptional()
+    assigneeId?: string;
+
+    @ApiPropertyOptional({ example: 'uuid-string' })
+    @IsUUID()
+    @IsOptional()
+    creatorId?: string;
 
     @ApiPropertyOptional({ example: 1, minimum: 1 })
     @Type(() => Number)
