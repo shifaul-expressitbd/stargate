@@ -241,6 +241,9 @@ CREATE TABLE "public"."file_metadata" (
     "checksum" TEXT,
     "expiresAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "userId" TEXT,
+    "supportTicketId" TEXT,
+    "ticketReplyId" TEXT,
 
     CONSTRAINT "file_metadata_pkey" PRIMARY KEY ("id")
 );
@@ -513,6 +516,15 @@ ALTER TABLE "public"."ticket_reopen_requests" ADD CONSTRAINT "ticket_reopen_requ
 
 -- AddForeignKey
 ALTER TABLE "public"."ticket_reopen_requests" ADD CONSTRAINT "ticket_reopen_requests_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "public"."users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."file_metadata" ADD CONSTRAINT "file_metadata_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."file_metadata" ADD CONSTRAINT "file_metadata_supportTicketId_fkey" FOREIGN KEY ("supportTicketId") REFERENCES "public"."support_tickets"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."file_metadata" ADD CONSTRAINT "file_metadata_ticketReplyId_fkey" FOREIGN KEY ("ticketReplyId") REFERENCES "public"."ticket_replies"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."ImpersonationSession" ADD CONSTRAINT "ImpersonationSession_adminId_fkey" FOREIGN KEY ("adminId") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

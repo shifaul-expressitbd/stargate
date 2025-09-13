@@ -202,6 +202,12 @@ export class FileService {
                 }
             };
 
+            this.logger.debug(`Upload options prepared:`, {
+                mimeType: file.mimetype,
+                category: autoCategory,
+                hasPreferredProvider: !!uploadOptions.preferredProvider,
+            });
+
             // If storage provider is explicitly specified, use it
             if (metadata?.storageProvider) {
                 const preferredProvider = parseStorageProvider(metadata.storageProvider);
@@ -215,8 +221,15 @@ export class FileService {
             }
 
             // Attempt file upload to storage
+            this.logger.debug(`Calling storage manager upload for: ${file.originalname}`);
             uploadResult = await this.storageManagerService.uploadFile(file, uploadOptions);
-            this.logger.log(`File storage upload successful: ${uploadResult.key}`);
+
+            this.logger.log(`File storage upload successful: ${uploadResult.key}`, {
+                key: uploadResult.key,
+                url: uploadResult.url,
+                success: uploadResult.success,
+                metadataSize: uploadResult.metadata?.size,
+            });
 
             // Determine which provider was actually used (fallback if preferred wasn't set)
             if (!selectedProvider) {
@@ -238,6 +251,13 @@ export class FileService {
             }
 
             // Create metadata record
+            this.logger.debug(`Creating metadata record for: ${file.originalname}`, {
+                filename: uploadResult.metadata.filename,
+                originalName: metadata?.originalName || file.originalname,
+                storageProvider: selectedProvider,
+                storageKey: uploadResult.key,
+            });
+
             const fileMetadata = await this.fileMetadataService.createFileMetadata({
                 filename: uploadResult.metadata.filename,
                 originalName: metadata?.originalName || file.originalname,
@@ -249,34 +269,55 @@ export class FileService {
                 category: autoCategory,
             });
 
-            this.logger.log(`File upload completed successfully: ${fileMetadata.id}`, {
+            this.logger.log(`File upload completed successfully: ${file.originalname} -> ${fileMetadata.id}`, {
                 storageKey: uploadResult.key,
                 storageProvider: selectedProvider,
                 processingStatus: fileMetadata.processingStatus,
+                metadataId: fileMetadata.id,
             });
 
             return fileMetadata as unknown as FileMetadataDto;
 
         } catch (error) {
-            this.logger.error(`File upload failed: ${error.message}`, {
+            this.logger.error(`File upload failed: ${file.originalname}`, {
                 error: error.message,
                 stack: error.stack,
-                filename: file.originalname,
+                filename: file.filename,
+                originalname: file.originalname,
+                mimetype: file.mimetype,
+                size: file.size,
                 selectedProvider,
                 uploadResultKey: uploadResult?.key,
                 uploadResultSuccess: uploadResult?.success,
+                uploadResultError: uploadResult?.error,
+                hasBuffer: !!file.buffer,
+                hasPath: !!file.path,
             });
 
             // Cleanup: If storage upload succeeded but metadata creation failed, delete the uploaded file
             if (uploadResult && uploadResult.success && uploadResult.key && selectedProvider) {
                 try {
-                    this.logger.log(`Attempting cleanup of uploaded file due to metadata creation failure: ${uploadResult.key}`);
+                    this.logger.log(`Attempting cleanup of uploaded file due to metadata creation failure: ${uploadResult.key}`, {
+                        storageProvider: selectedProvider,
+                        filename: uploadResult.metadata?.filename,
+                    });
                     await this.storageManagerService.deleteFile(uploadResult.key, selectedProvider);
                     this.logger.log(`Successfully cleaned up uploaded file: ${uploadResult.key}`);
                 } catch (cleanupError) {
-                    this.logger.error(`Failed to cleanup uploaded file ${uploadResult.key}: ${cleanupError.message}`, cleanupError.stack);
+                    this.logger.error(`Failed to cleanup uploaded file ${uploadResult.key}: ${cleanupError.message}`, {
+                        cleanupError: cleanupError.message,
+                        stack: cleanupError.stack,
+                        storageProvider: selectedProvider,
+                    });
                     // Don't throw cleanup errors as they shouldn't mask the original error
                 }
+            } else {
+                this.logger.debug(`No cleanup needed for ${file.originalname}`, {
+                    uploadResultExists: !!uploadResult,
+                    uploadSuccess: uploadResult?.success,
+                    hasKey: !!uploadResult?.key,
+                    selectedProvider,
+                });
             }
 
             throw error;
@@ -318,10 +359,14 @@ export class FileService {
                 }),
             };
 
+            this.logger.debug(`Validation options:`, validationOptions);
+
+            this.logger.debug(`Starting file validation for ${files.length} files`);
             const { valid, invalid } = await this.fileValidationService.validateFiles(
                 files,
                 validationOptions,
             );
+            this.logger.debug(`Validation completed: ${valid.length} valid, ${invalid.length} invalid`);
 
             // Add validation failures to failed list
             failedFiles.push(...invalid.map(f => ({
@@ -330,7 +375,11 @@ export class FileService {
             })));
 
             if (valid.length === 0) {
-                this.logger.warn(`No valid files to upload after validation`);
+                this.logger.warn(`No valid files to upload after validation`, {
+                    totalFiles: files.length,
+                    invalidFiles: invalid.length,
+                    validationErrors: invalid.map(f => f.error),
+                });
                 return {
                     files: [],
                     failed: failedFiles,
@@ -342,24 +391,40 @@ export class FileService {
             this.logger.log(`Processing ${valid.length} valid files for upload`);
 
             // Process valid files sequentially to maintain order and proper error handling
-            for (const file of valid) {
+            for (let i = 0; i < valid.length; i++) {
+                const file = valid[i];
                 try {
-                    this.logger.debug(`Uploading file: ${file.originalname}`);
+                    this.logger.debug(`Uploading file ${i + 1}/${valid.length}: ${file.originalname}`, {
+                        filename: file.filename,
+                        mimetype: file.mimetype,
+                        size: file.size,
+                        hasBuffer: !!file.buffer,
+                        hasPath: !!file.path,
+                    });
+
                     const fileMetadata = await this.uploadFile(file, {
                         storageProvider: options?.storageProvider,
                     });
+
                     uploadedFiles.push(fileMetadata);
                     totalSize += file.size;
-                    this.logger.debug(`Successfully uploaded: ${file.originalname} -> ${fileMetadata.id}`);
+
+                    this.logger.debug(`Successfully uploaded file ${i + 1}/${valid.length}: ${file.originalname} -> ${fileMetadata.id}`, {
+                        filename: fileMetadata.filename,
+                        storageProvider: fileMetadata.storageProvider,
+                        processingStatus: fileMetadata.processingStatus,
+                    });
                 } catch (error) {
                     const errorMsg = error.message || 'Unknown upload error';
-                    this.logger.error(`Failed to upload file ${file.originalname}: ${errorMsg}`, {
+                    this.logger.error(`Failed to upload file ${i + 1}/${valid.length} ${file.originalname}: ${errorMsg}`, {
                         error: errorMsg,
                         stack: error.stack,
                         filename: file.filename,
                         originalname: file.originalname,
                         mimetype: file.mimetype,
                         size: file.size,
+                        hasBuffer: !!file.buffer,
+                        hasPath: !!file.path,
                     });
                     failedFiles.push({
                         originalName: file.originalname,
@@ -375,6 +440,8 @@ export class FileService {
                 failedCount: failedFiles.length,
                 totalSize,
                 success,
+                uploadedFiles: uploadedFiles.map(f => ({ id: f.id, filename: f.filename, originalName: f.originalName })),
+                failedFiles: failedFiles.map(f => ({ originalName: f.originalName, error: f.error })),
             });
 
             return {

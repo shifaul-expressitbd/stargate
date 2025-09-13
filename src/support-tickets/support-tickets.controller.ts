@@ -94,15 +94,6 @@ export class SupportTicketsController {
                     enum: ['LOW', 'NORMAL', 'HIGH', 'URGENT'],
                     example: 'NORMAL',
                 },
-                attachmentIds: {
-                    type: 'array',
-                    items: {
-                        type: 'string',
-                        format: 'uuid',
-                    },
-                    description: 'Array of existing file IDs to attach',
-                    example: ['123e4567-e89b-12d3-a456-426614174000', '987fcdeb-51a2-43d7-8f9e-123456789012'],
-                },
                 attachments: {
                     type: 'array',
                     items: {
@@ -391,15 +382,7 @@ export class SupportTicketsController {
                     type: 'boolean',
                     description: 'Whether this reply is internal (staff only)',
                     example: false,
-                },
-                attachmentIds: {
-                    type: 'array',
-                    items: {
-                        type: 'string',
-                        format: 'uuid',
-                    },
-                    example: ['123e4567-e89b-12d3-a456-426614174000', '987fcdeb-51a2-43d7-8f9e-123456789012'],
-                },
+                }
             },
         },
     })

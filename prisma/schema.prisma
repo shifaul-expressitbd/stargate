@@ -375,12 +375,8 @@ model FileMetadata {
 
   // Storage provider fields
   storageProvider String
-  storageKey      String?   @unique
+  storageKey      String? @unique
   storageUrl      String?
-  storageBucket   String?
-  storageRegion   String?
-  checksum        String?
-  expiresAt       DateTime?
 
   createdAt       DateTime       @default(now())
   User            User?          @relation(fields: [userId], references: [id])

@@ -75,6 +75,13 @@ export class S3StorageService extends AbstractStorageService {
         try {
             const fileKey = key || this.generateFileKey(file);
 
+            this.logger.debug(`S3 upload starting for key: ${fileKey}`, {
+                bucket: this.s3Config.bucket,
+                region: this.s3Config.region,
+                hasKey: !!key,
+                generatedKey: fileKey,
+            });
+
             let body: Buffer;
             let contentType: string;
             let contentLength: number;
@@ -83,10 +90,13 @@ export class S3StorageService extends AbstractStorageService {
                 body = file;
                 contentType = options?.mimeType || 'application/octet-stream';
                 contentLength = file.length;
+                this.logger.debug(`Using buffer body, size: ${contentLength}`);
             } else {
+                this.logger.debug(`Reading file from path: ${file.path}`);
                 body = require('fs').readFileSync(file.path);
                 contentType = options?.mimeType || file.mimetype;
                 contentLength = file.size;
+                this.logger.debug(`Read file from disk, size: ${contentLength}`);
             }
 
             const uploadParams = {
@@ -100,8 +110,23 @@ export class S3StorageService extends AbstractStorageService {
                 ServerSideEncryption: this.s3Config.serverSideEncryption,
             };
 
+            this.logger.debug(`S3 upload params prepared:`, {
+                bucket: uploadParams.Bucket,
+                key: uploadParams.Key,
+                contentType: uploadParams.ContentType,
+                contentLength: uploadParams.ContentLength,
+                storageClass: uploadParams.StorageClass,
+                hasMetadata: !!uploadParams.Metadata,
+            });
+
             const command = new PutObjectCommand(uploadParams);
+            this.logger.debug(`Sending PutObjectCommand to S3`);
             const result = await this.s3Client.send(command);
+
+            this.logger.debug(`S3 upload command result:`, {
+                etag: result.ETag,
+                versionId: result.VersionId,
+            });
 
             const url = this.s3Config.publicUrl
                 ? `${this.s3Config.publicUrl}/${fileKey}`
@@ -124,7 +149,17 @@ export class S3StorageService extends AbstractStorageService {
                 success: true,
             };
         } catch (error) {
-            this.logger.error(`Failed to upload file to S3: ${error.message}`, error.stack);
+            this.logger.error(`Failed to upload file to S3: ${error.message}`, {
+                error: error.message,
+                stack: error.stack,
+                bucket: this.s3Config.bucket,
+                region: this.s3Config.region,
+                fileKey: key,
+                errorCode: error.code,
+                errorName: error.name,
+                requestId: error.$metadata?.requestId,
+                httpStatusCode: error.$metadata?.httpStatusCode,
+            });
             return {
                 fileId: '',
                 key: '',

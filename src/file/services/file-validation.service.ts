@@ -158,17 +158,34 @@ export class FileValidationService {
         const valid: MulterFile[] = [];
         const invalid: Array<{ file: MulterFile; error: string }> = [];
 
-        for (const file of files) {
+        this.logger.debug(`Starting validation for ${files.length} files`);
+
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
             try {
+                this.logger.debug(`Validating file ${i + 1}/${files.length}: ${file.originalname}`, {
+                    size: file.size,
+                    mimetype: file.mimetype,
+                    hasBuffer: !!file.buffer,
+                    hasPath: !!file.path,
+                });
                 await this.validateFile(file, options);
                 valid.push(file);
+                this.logger.debug(`File ${i + 1} validation passed: ${file.originalname}`);
             } catch (error) {
+                this.logger.warn(`File ${i + 1} validation failed: ${file.originalname}`, {
+                    error: error.message,
+                    size: file.size,
+                    mimetype: file.mimetype,
+                });
                 invalid.push({
                     file,
                     error: error.message,
                 });
             }
         }
+
+        this.logger.debug(`Validation completed: ${valid.length} valid, ${invalid.length} invalid`);
 
         return { valid, invalid };
     }

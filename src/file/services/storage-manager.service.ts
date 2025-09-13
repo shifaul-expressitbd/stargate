@@ -49,15 +49,74 @@ export class StorageManagerService implements OnModuleInit {
             metadata?: Record<string, any>;
         }
     ): Promise<StorageUploadResult> {
+        this.logger.debug(`StorageManager uploadFile called for: ${file.originalname}`, {
+            originalname: file.originalname,
+            mimetype: file.mimetype,
+            size: file.size,
+            preferredProvider: options?.preferredProvider,
+            hasMetadata: !!options?.metadata,
+        });
+
         const provider = options?.preferredProvider ||
             this.storageSelectorService.selectStorage(file);
 
+        this.logger.log(`Selected storage provider: ${provider} for file: ${file.originalname}`);
+
         const storageService = this.getStorageService(provider);
 
-        return await storageService.upload(file, undefined, {
-            mimeType: options?.mimeType,
-            metadata: options?.metadata,
-        });
+        this.logger.debug(`Calling storage service upload for provider: ${provider}`);
+
+        try {
+            const result = await storageService.upload(file, undefined, {
+                mimeType: options?.mimeType,
+                metadata: options?.metadata,
+            });
+
+            this.logger.log(`Storage upload result for ${file.originalname}:`, {
+                success: result.success,
+                key: result.key,
+                provider,
+                error: result.error,
+            });
+
+            // Enhanced error logging for debugging
+            if (!result.success && result.error) {
+                this.logger.error(`Upload failed for provider ${provider}, file ${file.originalname}:`, {
+                    error: result.error,
+                    fileSize: file.size,
+                    mimeType: file.mimetype,
+                    provider,
+                    availableProviders: this.getAvailableProviders(),
+                    providerConfigured: this.isProviderAvailable(provider)
+                });
+            }
+
+            return result;
+        } catch (uploadError) {
+            this.logger.error(`Exception during upload for provider ${provider}, file ${file.originalname}:`, {
+                error: uploadError.message,
+                stack: uploadError.stack,
+                fileSize: file.size,
+                mimeType: file.mimetype,
+                provider,
+                availableProviders: this.getAvailableProviders()
+            });
+
+            // Return failed result
+            return {
+                success: false,
+                error: uploadError.message,
+                fileId: '',
+                key: '',
+                url: '',
+                metadata: {
+                    size: file.size,
+                    mimeType: file.mimetype,
+                    filename: file.originalname,
+                    uploadedAt: new Date()
+                }
+            };
+        }
     }
 
     /**
@@ -171,7 +230,14 @@ export class StorageManagerService implements OnModuleInit {
      * Initialize a specific storage service
      */
     private async initializeStorageService(provider: StorageProvider): Promise<void> {
+        this.logger.debug(`Initializing storage service for provider: ${provider}`);
+
         const config = this.storageConfigService.getProviderConfig(provider);
+
+        this.logger.debug(`Retrieved config for ${provider}:`, {
+            hasConfig: !!config,
+            configKeys: config ? Object.keys(config) : [],
+        });
 
         let service: IStorageService;
 
@@ -205,6 +271,7 @@ export class StorageManagerService implements OnModuleInit {
         }
 
         this.storageServices.set(provider, service);
+        this.logger.debug(`Successfully initialized storage service: ${provider}`);
     }
 
     /**
@@ -219,5 +286,59 @@ export class StorageManagerService implements OnModuleInit {
      */
     getConfigurationSummary() {
         return this.storageConfigService.getConfigurationSummary();
+    }
+
+    /**
+     * Perform health check on a specific provider
+     */
+    async checkProviderHealth(provider: StorageProvider): Promise<{
+        healthy: boolean;
+        error?: string;
+        responseTime?: number;
+    }> {
+        const startTime = Date.now();
+
+        try {
+            const service = this.getStorageService(provider);
+
+            // Simple health check - try to get a test URL
+            const testResult = await service.getUrl('health-check-test-key', { expiresIn: 60 });
+
+            const responseTime = Date.now() - startTime;
+
+            if (testResult.success) {
+                this.logger.debug(`Health check passed for provider ${provider} (${responseTime}ms)`);
+                return { healthy: true, responseTime };
+            } else {
+                this.logger.warn(`Health check failed for provider ${provider}: ${testResult.error}`);
+                return { healthy: false, error: testResult.error, responseTime };
+            }
+        } catch (error) {
+            const responseTime = Date.now() - startTime;
+            this.logger.error(`Health check exception for provider ${provider}:`, {
+                error: error.message,
+                responseTime
+            });
+            return { healthy: false, error: error.message, responseTime };
+        }
+    }
+
+    /**
+     * Check health of all available providers
+     */
+    async checkAllProvidersHealth(): Promise<Record<StorageProvider, {
+        healthy: boolean;
+        error?: string;
+        responseTime?: number;
+    }>> {
+        const results: Record<string, any> = {};
+        const providers = this.getAvailableProviders();
+
+        for (const provider of providers) {
+            results[provider] = await this.checkProviderHealth(provider);
+        }
+
+        this.logger.log('Provider health check results:', results);
+        return results;
     }
 }

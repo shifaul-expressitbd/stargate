@@ -68,23 +68,27 @@ export class SupportTicketsService {
                 },
             });
 
-            // Handle file attachments if provided
-            if (dto.attachmentIds && dto.attachmentIds.length > 0) {
-                await this.attachFilesToTicket(ticket.id, dto.attachmentIds, userId);
-            }
 
             // Handle uploaded files if provided
             if (files && files.length > 0) {
                 const uploadedFileUrls = await this.uploadFilesToTicket(ticket.id, files, userId);
                 if (uploadedFileUrls && uploadedFileUrls.length > 0) {
+                    // Get current fileUrls and append new ones
+                    const currentTicket = await this.prisma.supportTicket.findUnique({
+                        where: { id: ticket.id },
+                        select: { fileUrls: true },
+                    });
+                    const existingUrls = currentTicket?.fileUrls || [];
+                    const combinedUrls = [...existingUrls, ...uploadedFileUrls];
+
                     await this.prisma.supportTicket.update({
                         where: { id: ticket.id },
                         data: {
-                            fileUrls: uploadedFileUrls,
+                            fileUrls: combinedUrls,
                         } as any,
                     });
-                    // Add fileUrls to the returned ticket object
-                    (ticket as any).fileUrls = uploadedFileUrls;
+                    // Add combined fileUrls to the returned ticket object
+                    (ticket as any).fileUrls = combinedUrls;
                 }
             }
 
@@ -432,11 +436,6 @@ export class SupportTicketsService {
                 },
             });
 
-            // Handle file attachments if provided
-            if (dto.attachmentIds && dto.attachmentIds.length > 0) {
-                await this.attachFilesToReply(reply.id, dto.attachmentIds, userId);
-            }
-
             // Update ticket's updatedAt timestamp
             await this.prisma.supportTicket.update({
                 where: { id: ticketId },
@@ -733,26 +732,46 @@ export class SupportTicketsService {
      */
     async uploadFilesToTicket(ticketId: string, files: Express.Multer.File[], userId: string): Promise<string[]> {
         try {
+            this.logger.info(`DEBUG: uploadFilesToTicket called with ticketId: ${ticketId}, userId: ${userId}, files length: ${files?.length || 0}`);
+            if (files && files.length > 0) {
+                files.forEach((file, index) => {
+                    this.logger.info(`DEBUG: File ${index}: originalname=${file.originalname}, mimetype=${file.mimetype}, size=${file.size}`);
+                });
+            }
+
             // Validate ticket exists and user has access
             await this.getTicketById(ticketId, userId, []);
 
+            this.logger.info(`DEBUG: Ticket validation passed for ticketId: ${ticketId}`);
+
             // Use local file service for upload
+            this.logger.info(`DEBUG: Calling fileService.uploadFiles with ${files.length} files`);
             const uploadResult = await this.fileService.uploadFiles(files);
+            this.logger.info(`DEBUG: uploadResult: ${JSON.stringify(uploadResult)}`);
 
             // Extract file URLs from the upload result
             const fileUrls: string[] = [];
             if (uploadResult.files && uploadResult.files.length > 0) {
-                uploadResult.files.forEach((file) => {
+                this.logger.info(`DEBUG: Processing ${uploadResult.files.length} files from upload result`);
+                uploadResult.files.forEach((file, index) => {
+                    this.logger.info(`DEBUG: File ${index} from result: downloadUrl=${file.downloadUrl}, id=${file.id}`);
                     if (file.downloadUrl) {
                         fileUrls.push(file.downloadUrl);
+                        this.logger.info(`DEBUG: Added downloadUrl to fileUrls: ${file.downloadUrl}`);
+                    } else {
+                        this.logger.error(`DEBUG: File ${index} missing downloadUrl`);
                     }
                 });
+            } else {
+                this.logger.error(`DEBUG: uploadResult.files is empty or null`);
             }
 
+            this.logger.info(`DEBUG: Final fileUrls length: ${fileUrls.length}, values: ${JSON.stringify(fileUrls)}`);
             this.logger.info(`Uploaded ${files.length} files to ticket ${ticketId}`);
 
             return fileUrls;
         } catch (error) {
+            this.logger.error(`DEBUG: Exception in uploadFilesToTicket: ${error.message}`, error.stack);
             this.logger.error(`Failed to upload files to ticket ${ticketId}`, error.message);
             throw error;
         }

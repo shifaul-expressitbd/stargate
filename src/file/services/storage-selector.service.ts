@@ -97,6 +97,18 @@ export class StorageSelectorService {
             `Selected ${recommendation.provider} storage for file ${file.originalname} (${fileCriteria.category}, ${fileCriteria.fileSize} bytes)`
         );
 
+        // Enhanced logging for debugging
+        this.logger.debug(`Storage selection details for ${file.originalname}:`, {
+            criteria: fileCriteria,
+            recommendation: {
+                provider: recommendation.provider,
+                reasoning: recommendation.reasoning,
+                estimatedCost: recommendation.estimatedCostPerGB,
+                performance: recommendation.performance
+            },
+            allConfiguredProviders: this.getAvailableProviders()
+        });
+
         return recommendation.provider;
     }
 
