@@ -505,7 +505,11 @@ export class FileService {
 
             const result = await this.fileMetadataService.searchFiles(
                 searchCriteria,
-                { page, limit }
+                { page, limit },
+                {
+                    sortBy: options?.sortBy || 'createdAt',
+                    sortOrder: options?.sortOrder || 'desc',
+                }
             );
 
             return {

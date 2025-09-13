@@ -173,7 +173,7 @@ export class FileQueryDto {
     })
     @IsOptional()
     @IsIn(['createdAt', 'filename', 'size', 'mimeType'])
-    sortBy?: 'createdAt' | 'filename' | 'size' | 'mimeType' = 'createdAt';
+    sortBy?: 'createdAt' | 'filename' | 'size' | 'mimeType';
 
     @ApiPropertyOptional({
         description: 'Sort order',
@@ -182,14 +182,22 @@ export class FileQueryDto {
     })
     @IsOptional()
     @IsIn(['asc', 'desc'])
-    sortOrder?: 'asc' | 'desc' = 'desc';
+    sortOrder?: 'asc' | 'desc';
 
     @ApiPropertyOptional({
-        description: 'Include related entities in response',
+        description: 'Include related entities in response (comma-separated or array)',
         example: ['uploader', 'ticket'],
         enum: ['uploader', 'ticket', 'reply'],
     })
     @IsOptional()
+    @Transform(({ value }) => {
+        if (!value) return undefined;
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') {
+            return value.split(',').map((item: string) => item.trim()).filter(Boolean);
+        }
+        return undefined;
+    })
     @IsArray()
     @IsString({ each: true })
     @IsIn(['uploader', 'ticket', 'reply'], { each: true })

@@ -400,7 +400,36 @@ export class LocalStorageService extends AbstractStorageService {
      * Generate local URL for a file
      */
     private generateLocalUrl(key: string): string {
-        const baseUrl = this.options.baseUrl || 'http://localhost:3000';
+        // Get base URL from configuration with environment-aware fallbacks
+        let baseUrl = this.options.baseUrl;
+
+        if (!baseUrl) {
+            // Try to get from ConfigService first
+            const configuredUrl = this.configService.get<string>('APP_BASE_URL') ||
+                this.configService.get<string>('BASE_URL');
+
+            if (configuredUrl) {
+                baseUrl = configuredUrl;
+            } else {
+                // Environment-aware defaults
+                const port = this.configService.get<number>('PORT', 3000);
+                const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+
+                if (isProduction) {
+                    // In production, try to construct from environment or use a generic placeholder
+                    baseUrl = this.configService.get<string>('APP_URL') ||
+                        this.configService.get<string>('SERVER_URL') ||
+                        'http://localhost:3000';
+                } else {
+                    // In development, use localhost with configured port
+                    baseUrl = `http://localhost:${port}`;
+                }
+            }
+        }
+
+        // Ensure baseUrl doesn't end with a slash
+        baseUrl = baseUrl.replace(/\/$/, '');
+
         // For local storage, serve files through our public file controller
         return `${baseUrl}/files/${key}`;
     }

@@ -3,7 +3,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ServeStaticModule } from '@nestjs/serve-static';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { join } from 'path';
 import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -64,6 +66,20 @@ import { LoggerService } from './utils/logger/logger.service';
       verboseMemoryLeak: false,
       ignoreErrors: false,
     }),
+
+    // Static file serving for uploads folder
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'uploads'),
+      serveRoot: '/uploads',
+      serveStaticOptions: {
+        index: false, // Don't serve index.html
+        setHeaders: (res, path) => {
+          // Set cache headers for static files
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+        },
+      },
+    }),
+
     DatabaseModule,
     AuthModule,
     UsersModule,

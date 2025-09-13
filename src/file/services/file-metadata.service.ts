@@ -311,6 +311,7 @@ export class FileMetadataService {
     async searchFiles(
         criteria: FileSearchCriteria,
         pagination: { page: number; limit: number } = { page: 1, limit: 20 },
+        sortOptions: { sortBy?: string; sortOrder?: string } = { sortBy: 'createdAt', sortOrder: 'desc' },
     ): Promise<{
         files: ExtendedFileMetadata[];
         total: number;
@@ -371,11 +372,19 @@ export class FileMetadataService {
 
             // Get paginated results
             const skip = (pagination.page - 1) * pagination.limit;
+
+            // Build orderBy based on sort options
+            const sortBy = sortOptions.sortBy || 'createdAt';
+            const sortOrder = (sortOptions.sortOrder || 'desc') === 'asc' ? 'asc' : 'desc';
+
+            const validSortFields = ['createdAt', 'filename', 'size', 'mimeType'];
+            const orderByField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+
             const files = await this.prisma.fileMetadata.findMany({
                 where,
                 skip,
                 take: pagination.limit,
-                orderBy: { createdAt: 'desc' },
+                orderBy: { [orderByField]: sortOrder },
             });
 
             const extendedFiles = await Promise.all(

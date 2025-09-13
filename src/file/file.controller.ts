@@ -28,6 +28,7 @@ import {
 } from '@nestjs/swagger';
 import type { Response as ExpressResponse } from 'express';
 import { Public } from '../common/decorators/public.decorator';
+import { FileQueryDto } from './dto/file-query.dto';
 import { MultipleFileUploadResponseDto } from './dto/file-upload.dto';
 import { MulterFile } from './interfaces/file-options.interface';
 import { FileService } from './services/file.service';
@@ -257,6 +258,7 @@ export class FileController {
      * Download file by UUID with cross-provider support
      * Handles downloads from multiple storage backends with automatic URL generation
      */
+    @Public()
     @Get('id/:id')
     @ApiOperation({
         summary: 'Download file by UUID',
@@ -511,12 +513,18 @@ export class FileController {
         summary: 'Get all files with pagination and filtering',
         description: `Retrieve a paginated list of files with support for advanced filtering options.
 
+        **Enhanced Features:**
+        - ✅ Consistent default values (page: 1, limit: 20)
+        - ✅ Comprehensive parameter validation using FileQueryDto
+        - ✅ All parameters are optional with proper defaults
+        - ✅ Cross-provider file listing support
+
         **Storage Provider Selection:**
         Files are automatically distributed across multiple storage providers (Local, S3, Cloudinary, MinIO, Google Cloud) based on file type, size, and configured priorities. Use the storageProvider filter to view files from specific providers.
 
-        **Supported Query Parameters:**
+        **Supported Query Parameters (all optional with defaults):**
         - page: Page number (default: 1, min: 1)
-        - limit: Items per page (default: 10, min: 1, max: 100)
+        - limit: Items per page (default: 20, min: 1, max: 100)
         - storageProvider: Filter by storage provider (local, s3, cloudinary, minio, google_cloud)
         - category: Filter by file category (document, image, video, audio, archive, other)
         - query: Search in filename or content
@@ -524,11 +532,11 @@ export class FileController {
         - uploaderId: Filter by uploader user ID
         - ticketId: Filter by related ticket ID
         - minSize/maxSize: Filter by file size range
-        - dateFrom/dateTo: Filter by upload date range
+        - dateFrom/dateTo: Filter by upload date range (ISO date strings)
         - securityStatus: Filter by security status
         - processingStatus: Filter by processing status
-        - sortBy: Sort field (createdAt, filename, size, mimeType)
-        - sortOrder: Sort order (asc, desc)
+        - sortBy: Sort field (createdAt, filename, size, mimeType) - default: createdAt
+        - sortOrder: Sort order (asc, desc) - default: desc
         - include: Include related entities (uploader, ticket, reply)`
     })
     @ApiResponse({
@@ -572,48 +580,7 @@ export class FileController {
     })
     @ApiResponse({ status: 400, description: 'Invalid query parameters' })
     @ApiResponse({ status: 500, description: 'Internal server error' })
-    async getAllFiles(
-        @Query('page') page?: string,
-        @Query('limit') limit?: string,
-        @Query('storageProvider') storageProvider?: string,
-        @Query('category') category?: string,
-        @Query('query') searchQuery?: string,
-        @Query('mimeType') mimeType?: string,
-        @Query('uploaderId') uploaderId?: string,
-        @Query('ticketId') ticketId?: string,
-        @Query('minSize') minSize?: string,
-        @Query('maxSize') maxSize?: string,
-        @Query('dateFrom') dateFrom?: string,
-        @Query('dateTo') dateTo?: string,
-        @Query('securityStatus') securityStatus?: string,
-        @Query('processingStatus') processingStatus?: string,
-        @Query('sortBy') sortBy?: string,
-        @Query('sortOrder') sortOrder?: string,
-        @Query('include') include?: string[],
-    ) {
-        const pageNum = page ? parseInt(page, 10) : 1;
-        const limitNum = limit ? parseInt(limit, 10) : 10;
-        const minSizeNum = minSize ? parseInt(minSize, 10) : undefined;
-        const maxSizeNum = maxSize ? parseInt(maxSize, 10) : undefined;
-
-        return await this.fileService.getAllFiles({
-            page: pageNum,
-            limit: limitNum,
-            storageProvider,
-            category,
-            query: searchQuery,
-            mimeType,
-            uploaderId,
-            ticketId,
-            minSize: minSizeNum,
-            maxSize: maxSizeNum,
-            dateFrom: dateFrom ? new Date(dateFrom) : undefined,
-            dateTo: dateTo ? new Date(dateTo) : undefined,
-            securityStatus,
-            processingStatus,
-            sortBy: sortBy as any,
-            sortOrder: sortOrder as any,
-            include,
-        });
+    async getAllFiles(@Query() query: FileQueryDto) {
+        return await this.fileService.getAllFiles(query);
     }
 }
