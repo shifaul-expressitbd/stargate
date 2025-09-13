@@ -358,6 +358,37 @@ export class StorageSelectorService {
                 }
                 break;
 
+            case StorageProvider.CLOUDFLARE_R2:
+                estimatedCostPerGB = 0.015; // R2 pricing (cost-effective)
+                performance = { latency: 'low', throughput: 'high', availability: 99.999 };
+                compliance = { encryption: true, auditLogs: true, dataResidency: true };
+
+                // R2 is best for general files (<5GB), global distribution, cost-effective storage
+                if (criteria.fileSize < 5 * 1024 * 1024 * 1024) { // < 5GB
+                    score += 50;
+                    reasoning.push('Optimized for general files under 5GB');
+                }
+
+                if (criteria.globalDistribution) {
+                    score += 40;
+                    reasoning.push('Excellent global distribution capabilities');
+                }
+
+                if (criteria.costSensitivity === 'high') {
+                    score += 30;
+                    reasoning.push('Cost-effective storage option');
+                }
+
+                if (criteria.performance === 'medium' || criteria.performance === 'high') {
+                    score += 25;
+                    reasoning.push('Good performance for most use cases');
+                }
+
+                // Base score for versatility
+                score += 20;
+                reasoning.push('Versatile storage for various file types');
+                break;
+
             case StorageProvider.GOOGLE_CLOUD:
                 estimatedCostPerGB = 0.026; // GCS pricing
                 performance = { latency: 'medium', throughput: 'high', availability: 99.999 };

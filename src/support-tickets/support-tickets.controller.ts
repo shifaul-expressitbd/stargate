@@ -15,6 +15,8 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import {
     ApiBearerAuth,
+    ApiBody,
+    ApiConsumes,
     ApiOperation,
     ApiParam,
     ApiQuery,
@@ -71,7 +73,48 @@ export class SupportTicketsController {
     }
 
     @Post()
+    @UseInterceptors(FilesInterceptor('attachments'))
     @ApiOperation({ summary: 'Create a new support ticket' })
+    @ApiConsumes('multipart/form-data')
+    @ApiBody({
+        schema: {
+            type: 'object',
+            required: ['title'],
+            properties: {
+                title: {
+                    type: 'string',
+                    example: 'Issue with login page',
+                },
+                description: {
+                    type: 'string',
+                    example: 'I cannot access the login page...',
+                },
+                priority: {
+                    type: 'string',
+                    enum: ['LOW', 'NORMAL', 'HIGH', 'URGENT'],
+                    example: 'NORMAL',
+                },
+                attachmentIds: {
+                    type: 'array',
+                    items: {
+                        type: 'string',
+                        format: 'uuid',
+                    },
+                    description: 'Array of existing file IDs to attach',
+                    example: ['123e4567-e89b-12d3-a456-426614174000', '987fcdeb-51a2-43d7-8f9e-123456789012'],
+                },
+                attachments: {
+                    type: 'array',
+                    items: {
+                        type: 'string',
+                        format: 'binary',
+                    },
+                    description: 'Files to upload and attach to the ticket',
+                    example: ['file1.jpg', 'file2.pdf'],
+                },
+            },
+        },
+    })
     @ApiResponse({
         status: 201,
         description: 'Ticket created successfully',
@@ -87,6 +130,7 @@ export class SupportTicketsController {
                     priority: 'NORMAL',
                     createdAt: '2023-01-01T00:00:00.000Z',
                     updatedAt: '2023-01-01T00:00:00.000Z',
+                    fileUrls: ['/api/files/id/123e4567-e89b-12d3-a456-426614174000'],
                     createdBy: {
                         id: 'user-id',
                         email: 'user@example.com',
@@ -103,8 +147,9 @@ export class SupportTicketsController {
     async createTicket(
         @User() user: any,
         @Body() dto: CreateSupportTicketDto,
+        @UploadedFiles() files: Express.Multer.File[],
     ): Promise<ApiResponse> {
-        const ticket = await this.supportTicketsService.createTicket(user.id, dto);
+        const ticket = await this.supportTicketsService.createTicket(user.id, dto, files);
         return this.createSuccessResponse('Support ticket created successfully', ticket);
     }
 
@@ -248,6 +293,31 @@ export class SupportTicketsController {
     @Roles('admin', 'staff', 'support')
     @ApiOperation({ summary: 'Update a support ticket (Staff only)' })
     @ApiParam({ name: 'id', description: 'Ticket ID' })
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: {
+                title: {
+                    type: 'string',
+                    example: 'Updated issue title',
+                },
+                description: {
+                    type: 'string',
+                    example: 'Updated description...',
+                },
+                priority: {
+                    type: 'string',
+                    enum: ['LOW', 'NORMAL', 'HIGH', 'URGENT'],
+                    example: 'HIGH',
+                },
+                status: {
+                    type: 'string',
+                    enum: ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'],
+                    example: 'IN_PROGRESS',
+                },
+            },
+        },
+    })
     @ApiResponse({
         status: 200,
         description: 'Ticket updated successfully',
@@ -274,6 +344,19 @@ export class SupportTicketsController {
     @Roles('admin', 'staff', 'support')
     @ApiOperation({ summary: 'Assign a ticket to a staff member (Staff only)' })
     @ApiParam({ name: 'id', description: 'Ticket ID' })
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: {
+                assigneeId: {
+                    type: 'string',
+                    format: 'uuid',
+                    description: 'Staff member ID to assign the ticket to (null to unassign)',
+                    example: '123e4567-e89b-12d3-a456-426614174000',
+                },
+            },
+        },
+    })
     @ApiResponse({
         status: 200,
         description: 'Ticket assigned successfully',
@@ -295,6 +378,31 @@ export class SupportTicketsController {
     @Post(':id/replies')
     @ApiOperation({ summary: 'Add a reply to a support ticket' })
     @ApiParam({ name: 'id', description: 'Ticket ID' })
+    @ApiBody({
+        schema: {
+            type: 'object',
+            required: ['content'],
+            properties: {
+                content: {
+                    type: 'string',
+                    example: 'This is my reply to the ticket.',
+                },
+                isInternal: {
+                    type: 'boolean',
+                    description: 'Whether this reply is internal (staff only)',
+                    example: false,
+                },
+                attachmentIds: {
+                    type: 'array',
+                    items: {
+                        type: 'string',
+                        format: 'uuid',
+                    },
+                    example: ['123e4567-e89b-12d3-a456-426614174000', '987fcdeb-51a2-43d7-8f9e-123456789012'],
+                },
+            },
+        },
+    })
     @ApiResponse({
         status: 201,
         description: 'Reply added successfully',
@@ -328,6 +436,18 @@ export class SupportTicketsController {
     @Post(':id/reopen')
     @ApiOperation({ summary: 'Request to reopen a closed ticket' })
     @ApiParam({ name: 'id', description: 'Ticket ID' })
+    @ApiBody({
+        schema: {
+            type: 'object',
+            required: ['reason'],
+            properties: {
+                reason: {
+                    type: 'string',
+                    example: 'The issue is still not resolved. I still cannot access the login page.',
+                },
+            },
+        },
+    })
     @ApiResponse({
         status: 201,
         description: 'Reopen request created successfully',
@@ -350,6 +470,19 @@ export class SupportTicketsController {
     @Roles('admin', 'staff', 'support')
     @ApiOperation({ summary: 'Process a reopen request (Staff only)' })
     @ApiParam({ name: 'requestId', description: 'Reopen request ID' })
+    @ApiBody({
+        schema: {
+            type: 'object',
+            required: ['approve'],
+            properties: {
+                approve: {
+                    type: 'boolean',
+                    description: 'Whether to approve the reopen request',
+                    example: true,
+                },
+            },
+        },
+    })
     @ApiResponse({
         status: 200,
         description: 'Reopen request processed successfully',
@@ -376,6 +509,24 @@ export class SupportTicketsController {
     @UseInterceptors(FilesInterceptor('files'))
     @ApiOperation({ summary: 'Upload files to an existing support ticket' })
     @ApiParam({ name: 'id', description: 'Ticket ID' })
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: {
+                ticketId: {
+                    type: 'string',
+                    format: 'uuid',
+                    description: 'Ticket ID to associate the uploaded files with',
+                    example: '123e4567-e89b-12d3-a456-426614174000',
+                },
+                description: {
+                    type: 'string',
+                    description: 'Optional description for the uploaded files',
+                    example: 'Screenshots of the error',
+                },
+            },
+        },
+    })
     @ApiResponse({
         status: 201,
         description: 'Files uploaded successfully',
@@ -417,6 +568,24 @@ export class SupportTicketsController {
     @ApiOperation({ summary: 'Upload files to an existing ticket reply' })
     @ApiParam({ name: 'id', description: 'Ticket ID' })
     @ApiParam({ name: 'replyId', description: 'Reply ID' })
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: {
+                replyId: {
+                    type: 'string',
+                    format: 'uuid',
+                    description: 'Reply ID to associate the uploaded files with',
+                    example: '123e4567-e89b-12d3-a456-426614174000',
+                },
+                description: {
+                    type: 'string',
+                    description: 'Optional description for the uploaded files',
+                    example: 'Additional documentation',
+                },
+            },
+        },
+    })
     @ApiResponse({
         status: 201,
         description: 'Files uploaded successfully',

@@ -102,7 +102,7 @@ export class FileController {
                 },
                 storageProvider: {
                     type: 'string',
-                    enum: ['local', 's3', 'cloudinary', 'minio', 'google_cloud'],
+                    enum: ['local', 's3', 'cloudinary', 'minio', 'google_cloud', 'cloudflare_r2'],
                     description: 'Optional preferred storage provider',
                     example: 's3'
                 },
@@ -173,7 +173,8 @@ export class FileController {
                     cloudinary: 1,
                     local: 0,
                     minio: 0,
-                    google_cloud: 0
+                    google_cloud: 0,
+                    cloudflare_r2: 0
                 }
             }
         }
@@ -231,7 +232,8 @@ export class FileController {
                         cloudinary: 0,
                         local: 0,
                         minio: 0,
-                        google_cloud: 0
+                        google_cloud: 0,
+                        cloudflare_r2: 0
                     }
                 };
             }

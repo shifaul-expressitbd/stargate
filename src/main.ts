@@ -24,7 +24,7 @@ async function bootstrap() {
 
   // Set global prefix
   app.setGlobalPrefix('api', {
-    exclude: [{ path: 'files*', method: RequestMethod.ALL }],
+    exclude: [{ path: 'files:path', method: RequestMethod.ALL }],
   });
 
   // Get config service

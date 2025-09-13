@@ -12,6 +12,7 @@ export enum StorageProvider {
     CLOUDINARY = 'cloudinary',
     MINIO = 'minio',
     S3 = 's3',
+    CLOUDFLARE_R2 = 'cloudflare_r2',
     GOOGLE_CLOUD = 'google_cloud',
 }
 

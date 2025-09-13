@@ -11,8 +11,11 @@ import { MulterFile } from '../interfaces/file-options.interface';
 import { IStorageService } from '../interfaces/istorage-service.interface';
 import { StorageDeleteResult, StorageDownloadResult, StorageProvider, StorageUploadResult, StorageUrlResult } from '../interfaces/storage.interface';
 import { StorageSelectorService } from './storage-selector.service';
+import { CloudflareR2StorageService } from './storage/cloudflare-r2-storage.service';
 import { CloudinaryStorageService } from './storage/cloudinary-storage.service';
+import { GoogleCloudStorageService } from './storage/google-cloud-storage.service';
 import { LocalStorageService } from './storage/local-storage.service';
+import { MinIOStorageService } from './storage/minio-storage.service';
 import { S3StorageService } from './storage/s3-storage.service';
 
 /**
@@ -134,6 +137,8 @@ export class StorageManagerService implements OnModuleInit {
             return this.getStorageService(StorageProvider.CLOUDINARY);
         } else if (key.startsWith('s3://')) {
             return this.getStorageService(StorageProvider.S3);
+        } else if (key.startsWith('r2://')) {
+            return this.getStorageService(StorageProvider.CLOUDFLARE_R2);
         } else {
             // Default to local storage
             return this.getStorageService(StorageProvider.LOCAL);
@@ -183,18 +188,16 @@ export class StorageManagerService implements OnModuleInit {
                 service = new S3StorageService(config as any, this.configService);
                 break;
 
+            case StorageProvider.CLOUDFLARE_R2:
+                service = new CloudflareR2StorageService(config as any, this.configService);
+                break;
+
             case StorageProvider.MINIO:
-                // For now, use local storage as fallback
-                // MinIO implementation would require minio SDK
-                this.logger.warn(`MinIO provider not fully implemented, using local storage as fallback`);
-                service = new LocalStorageService(config as any, this.configService);
+                service = new MinIOStorageService(config as any, this.configService);
                 break;
 
             case StorageProvider.GOOGLE_CLOUD:
-                // For now, use local storage as fallback
-                // Google Cloud implementation would require @google-cloud/storage SDK
-                this.logger.warn(`Google Cloud provider not fully implemented, using local storage as fallback`);
-                service = new LocalStorageService(config as any, this.configService);
+                service = new GoogleCloudStorageService(config as any, this.configService);
                 break;
 
             default:

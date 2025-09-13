@@ -304,7 +304,9 @@ model SupportTicket {
 
   replies        TicketReply[]
   reopenRequests TicketReopenRequest[]
-  FileMetadata   FileMetadata[]
+
+  fileUrls     String[]       @default([])
+  FileMetadata FileMetadata[]
 
   @@index([status])
   @@index([priority])
@@ -326,6 +328,7 @@ model TicketReply {
 
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
+  fileUrls     String[]       @default([])
   FileMetadata FileMetadata[]
 
   @@index([ticketId])

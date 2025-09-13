@@ -12,6 +12,7 @@ import { DatabaseModule } from '../database/database.module';
 import { fileConfig } from './config/file.config';
 import { StorageConfigService } from './config/storage.config';
 import { FileController } from './file.controller';
+import { StorageProvider } from './interfaces/storage.interface';
 import { PublicFileController } from './public-file.controller';
 import { FileCleanupService } from './services/file-cleanup.service';
 import { FileMetadataService } from './services/file-metadata.service';
@@ -20,6 +21,7 @@ import { FileValidationService } from './services/file-validation.service';
 import { FileService } from './services/file.service';
 import { StorageManagerService } from './services/storage-manager.service';
 import { StorageSelectorService } from './services/storage-selector.service';
+import { CloudflareR2StorageService } from './services/storage/cloudflare-r2-storage.service';
 
 /**
  * File module
@@ -83,6 +85,16 @@ import { StorageSelectorService } from './services/storage-selector.service';
         StorageManagerService,
         StorageSelectorService,
         StorageConfigService,
+
+        // Storage services
+        {
+            provide: 'R2_STORAGE_OPTIONS',
+            useFactory: (storageConfig: StorageConfigService) => {
+                return storageConfig.getProviderConfig(StorageProvider.CLOUDFLARE_R2);
+            },
+            inject: [StorageConfigService],
+        },
+        CloudflareR2StorageService,
 
         // Keep legacy service for compatibility
         FileStorageService,

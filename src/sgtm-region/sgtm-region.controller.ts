@@ -38,14 +38,41 @@ import { SgtmRegionService } from './sgtm-region.service';
 export class SgtmRegionController {
   private readonly logger = new Logger(SgtmRegionController.name);
 
-  constructor(private readonly sgtmRegionService: SgtmRegionService) {}
+  constructor(private readonly sgtmRegionService: SgtmRegionService) { }
 
   @Post()
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create a new region' })
-  @ApiBody({ type: CreateRegionDto })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['key', 'name', 'apiUrl', 'apiKey'],
+      properties: {
+        key: {
+          type: 'string',
+          example: 'us-east-1',
+        },
+        name: {
+          type: 'string',
+          example: 'US East 1',
+        },
+        apiUrl: {
+          type: 'string',
+          example: 'https://api.example.com',
+        },
+        apiKey: {
+          type: 'string',
+          example: 'your-api-key',
+        },
+        description: {
+          type: 'string',
+          example: 'A description',
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 201,
     description: 'Region created successfully',
@@ -108,7 +135,33 @@ export class SgtmRegionController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Update region' })
   @ApiParam({ name: 'key', description: 'Region key' })
-  @ApiBody({ type: UpdateRegionDto })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          example: 'US East 1 Updated',
+        },
+        apiUrl: {
+          type: 'string',
+          example: 'https://api.updated.com',
+        },
+        apiKey: {
+          type: 'string',
+          example: 'new-api-key',
+        },
+        isActive: {
+          type: 'boolean',
+          example: true,
+        },
+        description: {
+          type: 'string',
+          example: 'Updated description',
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 200,
     description: 'Region updated successfully',

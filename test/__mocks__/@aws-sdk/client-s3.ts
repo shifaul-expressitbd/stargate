@@ -18,91 +18,82 @@ export enum ServerSideEncryption {
     AWS_KMS = 'aws:kms',
 }
 
-export class PutObjectCommand {
-    constructor(public input: any) { }
-}
+export const PutObjectCommand = jest.fn().mockImplementation((input: any) => ({ type: 'PutObject', input }));
 
-export class GetObjectCommand {
-    constructor(public input: any) { }
-}
+export const GetObjectCommand = jest.fn().mockImplementation((input: any) => ({ type: 'GetObject', input }));
 
-export class DeleteObjectCommand {
-    constructor(public input: any) { }
-}
+export const DeleteObjectCommand = jest.fn().mockImplementation((input: any) => ({ type: 'DeleteObject', input }));
 
-export class HeadObjectCommand {
-    constructor(public input: any) { }
-}
+export const HeadObjectCommand = jest.fn().mockImplementation((input: any) => ({ type: 'HeadObject', input }));
 
-export class ListObjectsV2Command {
-    constructor(public input: any) { }
-}
+export const ListObjectsV2Command = jest.fn().mockImplementation((input: any) => ({ type: 'ListObjectsV2', input }));
 
-export class CopyObjectCommand {
-    constructor(public input: any) { }
-}
+export const CopyObjectCommand = jest.fn().mockImplementation((input: any) => ({ type: 'CopyObject', input }));
 
-export class S3Client {
-    constructor(public config?: any) { }
-
-    send = jest.fn().mockImplementation((command) => {
-        if (command instanceof PutObjectCommand) {
-            return Promise.resolve({
-                ETag: '"mock-etag"',
-                VersionId: 'mock-version-id',
-            });
-        }
-
-        if (command instanceof GetObjectCommand) {
-            return Promise.resolve({
-                Body: {
-                    transformToByteArray: jest.fn().mockResolvedValue(Buffer.from('mock file content')),
-                    transformToString: jest.fn().mockResolvedValue('mock file content'),
-                },
-                ContentLength: 1024000,
-                ContentType: 'application/octet-stream',
-                LastModified: new Date(),
-                Metadata: {},
-            });
-        }
-
-        if (command instanceof DeleteObjectCommand) {
-            return Promise.resolve({});
-        }
-
-        if (command instanceof HeadObjectCommand) {
-            return Promise.resolve({
-                ContentLength: 1024000,
-                ContentType: 'application/octet-stream',
-                LastModified: new Date(),
-                Metadata: {},
-                ETag: '"mock-etag"',
-            });
-        }
-
-        if (command instanceof ListObjectsV2Command) {
-            return Promise.resolve({
-                Contents: [
-                    {
-                        Key: 'test-file.txt',
-                        Size: 1024,
-                        LastModified: new Date(),
-                        ETag: '"mock-etag"',
-                    },
-                ],
-                IsTruncated: false,
-            });
-        }
-
-        if (command instanceof CopyObjectCommand) {
-            return Promise.resolve({
-                CopyObjectResult: {
+export const S3Client = jest.fn().mockImplementation((config?: any) => {
+    const instance = {
+        send: jest.fn().mockImplementation((command) => {
+            if (command.type === 'PutObject') {
+                return Promise.resolve({
                     ETag: '"mock-etag"',
-                    LastModified: new Date(),
-                },
-            });
-        }
+                    VersionId: 'mock-version-id',
+                });
+            }
 
-        return Promise.resolve({});
-    });
-}
+            if (command.type === 'GetObject') {
+                return Promise.resolve({
+                    Body: 'mock file content',
+                    ContentLength: 1024000,
+                    ContentType: 'application/octet-stream',
+                    LastModified: new Date(),
+                    Metadata: {},
+                });
+            }
+
+            if (command.type === 'HeadObject') {
+                return Promise.resolve({
+                    ContentLength: 1024000,
+                    ContentType: 'application/octet-stream',
+                    LastModified: new Date(),
+                    Metadata: {},
+                    ETag: '"mock-etag"',
+                });
+            }
+
+            if (command.type === 'DeleteObject') {
+                return Promise.resolve({});
+            }
+
+            if (command.type === 'CopyObject') {
+                return Promise.resolve({
+                    CopyObjectResult: {
+                        ETag: '"mock-etag"',
+                        LastModified: new Date(),
+                    },
+                });
+            }
+
+            if (command.type === 'ListObjectsV2') {
+                if (command.input.MaxKeys === 1) {
+                    return Promise.resolve({
+                        Contents: [],
+                    });
+                }
+                return Promise.resolve({
+                    Contents: [
+                        {
+                            Key: 'test-file.txt',
+                            Size: 1024,
+                            LastModified: new Date(),
+                            ETag: '"mock-etag"',
+                        },
+                    ],
+                    IsTruncated: false,
+                });
+            }
+
+            return Promise.resolve({});
+        }),
+    };
+    return instance;
+});

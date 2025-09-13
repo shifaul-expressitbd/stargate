@@ -38,18 +38,105 @@ import { MetaCapiRegionService } from './meta-capi-region.service';
 export class MetaCapiRegionController {
   private readonly logger = new Logger(MetaCapiRegionController.name);
 
-  constructor(private readonly metaCapiRegionService: MetaCapiRegionService) {}
+  constructor(private readonly metaCapiRegionService: MetaCapiRegionService) { }
 
   @Post()
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create a new Meta CAPI region' })
-  @ApiBody({ type: CreateMetaCapiRegionDto })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['key', 'name', 'baseUrl', 'appId', 'appSecret'],
+      properties: {
+        key: {
+          type: 'string',
+          example: 'us',
+        },
+        name: {
+          type: 'string',
+          example: 'US',
+        },
+        baseUrl: {
+          type: 'string',
+          example: 'https://graph.facebook.com',
+        },
+        appId: {
+          type: 'string',
+          example: '123456789012345',
+        },
+        appSecret: {
+          type: 'string',
+          example: 'your-app-secret',
+        },
+        apiVersion: {
+          type: 'string',
+          example: 'v16.0',
+        },
+        description: {
+          type: 'string',
+          example: 'A description',
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 201,
     description: 'Region created successfully',
-    type: MetaCapiRegionResponseDto,
+    schema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          example: 'clhjm8x1214520kgfg30kajlm',
+        },
+        key: {
+          type: 'string',
+          example: 'us',
+        },
+        name: {
+          type: 'string',
+          example: 'US',
+        },
+        baseUrl: {
+          type: 'string',
+          example: 'https://graph.facebook.com',
+        },
+        appId: {
+          type: 'string',
+          example: '123456789012345',
+        },
+        appSecret: {
+          type: 'string',
+          example: 'your-app-secret',
+        },
+        apiVersion: {
+          type: 'string',
+          example: 'v16.0',
+        },
+        isActive: {
+          type: 'boolean',
+          example: true,
+        },
+        isDefault: {
+          type: 'boolean',
+          example: false,
+        },
+        description: {
+          type: 'string',
+          example: 'A description',
+        },
+        createdAt: {
+          type: 'string',
+          format: 'date-time',
+        },
+        updatedAt: {
+          type: 'string',
+          format: 'date-time',
+        },
+      },
+    },
   })
   @ApiResponse({ status: 400, description: 'Bad request' })
   @ApiResponse({ status: 403, description: 'Forbidden - Admin role required' })
@@ -69,7 +156,62 @@ export class MetaCapiRegionController {
   @ApiResponse({
     status: 200,
     description: 'Regions retrieved successfully',
-    type: [MetaCapiRegionResponseDto],
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: {
+            type: 'string',
+            example: 'clhjm8x1214520kgfg30kajlm',
+          },
+          key: {
+            type: 'string',
+            example: 'us',
+          },
+          name: {
+            type: 'string',
+            example: 'US',
+          },
+          baseUrl: {
+            type: 'string',
+            example: 'https://graph.facebook.com',
+          },
+          appId: {
+            type: 'string',
+            example: '123456789012345',
+          },
+          appSecret: {
+            type: 'string',
+            example: 'your-app-secret',
+          },
+          apiVersion: {
+            type: 'string',
+            example: 'v16.0',
+          },
+          isActive: {
+            type: 'boolean',
+            example: true,
+          },
+          isDefault: {
+            type: 'boolean',
+            example: false,
+          },
+          description: {
+            type: 'string',
+            example: 'A description',
+          },
+          createdAt: {
+            type: 'string',
+            format: 'date-time',
+          },
+          updatedAt: {
+            type: 'string',
+            format: 'date-time',
+          },
+        },
+      },
+    },
   })
   async findAll(): Promise<MetaCapiRegion[]> {
     return this.metaCapiRegionService.findAll();
@@ -81,7 +223,39 @@ export class MetaCapiRegionController {
   @ApiResponse({
     status: 200,
     description: 'Available regions retrieved successfully',
-    type: AvailableMetaCapiRegionsResponseDto,
+    schema: {
+      type: 'object',
+      properties: {
+        regions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              key: {
+                type: 'string',
+                example: 'us',
+              },
+              name: {
+                type: 'string',
+                example: 'US',
+              },
+              available: {
+                type: 'boolean',
+                example: true,
+              },
+              default: {
+                type: 'boolean',
+                example: false,
+              },
+            },
+          },
+        },
+        defaultRegion: {
+          type: 'string',
+          example: 'us',
+        },
+      },
+    },
   })
   async getAvailableRegions(): Promise<AvailableMetaCapiRegionsResponseDto> {
     return this.metaCapiRegionService.getAvailableRegionsForApi();
@@ -95,7 +269,59 @@ export class MetaCapiRegionController {
   @ApiResponse({
     status: 200,
     description: 'Region retrieved successfully',
-    type: MetaCapiRegionResponseDto,
+    schema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          example: 'clhjm8x1214520kgfg30kajlm',
+        },
+        key: {
+          type: 'string',
+          example: 'us',
+        },
+        name: {
+          type: 'string',
+          example: 'US',
+        },
+        baseUrl: {
+          type: 'string',
+          example: 'https://graph.facebook.com',
+        },
+        appId: {
+          type: 'string',
+          example: '123456789012345',
+        },
+        appSecret: {
+          type: 'string',
+          example: 'your-app-secret',
+        },
+        apiVersion: {
+          type: 'string',
+          example: 'v16.0',
+        },
+        isActive: {
+          type: 'boolean',
+          example: true,
+        },
+        isDefault: {
+          type: 'boolean',
+          example: false,
+        },
+        description: {
+          type: 'string',
+          example: 'A description',
+        },
+        createdAt: {
+          type: 'string',
+          format: 'date-time',
+        },
+        updatedAt: {
+          type: 'string',
+          format: 'date-time',
+        },
+      },
+    },
   })
   @ApiResponse({ status: 404, description: 'Region not found' })
   async findByKey(@Param('key') key: string): Promise<MetaCapiRegion> {
@@ -112,11 +338,97 @@ export class MetaCapiRegionController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Update Meta CAPI region' })
   @ApiParam({ name: 'key', description: 'Region key' })
-  @ApiBody({ type: UpdateMetaCapiRegionDto })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          example: 'US Updated',
+        },
+        baseUrl: {
+          type: 'string',
+          example: 'https://graph.facebook.com/updated',
+        },
+        appId: {
+          type: 'string',
+          example: '123456789012345',
+        },
+        appSecret: {
+          type: 'string',
+          example: 'new-app-secret',
+        },
+        apiVersion: {
+          type: 'string',
+          example: 'v17.0',
+        },
+        isActive: {
+          type: 'boolean',
+          example: true,
+        },
+        description: {
+          type: 'string',
+          example: 'Updated description',
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 200,
     description: 'Region updated successfully',
-    type: MetaCapiRegionResponseDto,
+    schema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          example: 'clhjm8x1214520kgfg30kajlm',
+        },
+        key: {
+          type: 'string',
+          example: 'us',
+        },
+        name: {
+          type: 'string',
+          example: 'US',
+        },
+        baseUrl: {
+          type: 'string',
+          example: 'https://graph.facebook.com',
+        },
+        appId: {
+          type: 'string',
+          example: '123456789012345',
+        },
+        appSecret: {
+          type: 'string',
+          example: 'your-app-secret',
+        },
+        apiVersion: {
+          type: 'string',
+          example: 'v16.0',
+        },
+        isActive: {
+          type: 'boolean',
+          example: true,
+        },
+        isDefault: {
+          type: 'boolean',
+          example: false,
+        },
+        description: {
+          type: 'string',
+          example: 'A description',
+        },
+        createdAt: {
+          type: 'string',
+          format: 'date-time',
+        },
+        updatedAt: {
+          type: 'string',
+          format: 'date-time',
+        },
+      },
+    },
   })
   @ApiResponse({ status: 404, description: 'Region not found' })
   @ApiResponse({ status: 400, description: 'Bad request' })

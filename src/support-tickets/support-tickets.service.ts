@@ -6,6 +6,7 @@ import { FileCleanupService } from '../file/services/file-cleanup.service';
 import { FileMetadataService } from '../file/services/file-metadata.service';
 import { FileStorageService } from '../file/services/file-storage.service';
 import { FileValidationService } from '../file/services/file-validation.service';
+import { FileService } from '../file/services/file.service';
 import { LoggerService } from '../utils/logger/logger.service';
 import { CreateReopenRequestDto } from './dto/create-reopen-request.dto';
 import { CreateSupportTicketDto } from './dto/create-support-ticket.dto';
@@ -19,6 +20,7 @@ export class SupportTicketsService {
         private readonly prisma: PrismaService,
         private readonly logger: LoggerService,
         private readonly httpService: HttpService,
+        private readonly fileService: FileService,
         private readonly fileStorageService: FileStorageService,
         private readonly fileMetadataService: FileMetadataService,
         private readonly fileValidationService: FileValidationService,
@@ -32,7 +34,7 @@ export class SupportTicketsService {
         }
     }
 
-    async createTicket(userId: string, dto: CreateSupportTicketDto) {
+    async createTicket(userId: string, dto: CreateSupportTicketDto, files?: Express.Multer.File[]) {
         try {
             const ticket = await this.prisma.supportTicket.create({
                 data: {
@@ -69,6 +71,21 @@ export class SupportTicketsService {
             // Handle file attachments if provided
             if (dto.attachmentIds && dto.attachmentIds.length > 0) {
                 await this.attachFilesToTicket(ticket.id, dto.attachmentIds, userId);
+            }
+
+            // Handle uploaded files if provided
+            if (files && files.length > 0) {
+                const uploadedFileUrls = await this.uploadFilesToTicket(ticket.id, files, userId);
+                if (uploadedFileUrls && uploadedFileUrls.length > 0) {
+                    await this.prisma.supportTicket.update({
+                        where: { id: ticket.id },
+                        data: {
+                            fileUrls: uploadedFileUrls,
+                        } as any,
+                    });
+                    // Add fileUrls to the returned ticket object
+                    (ticket as any).fileUrls = uploadedFileUrls;
+                }
             }
 
             this.logger.info(`Support ticket created: ${ticket.id} by user ${userId}`);
@@ -607,28 +624,36 @@ export class SupportTicketsService {
      */
     private async attachFilesToTicket(ticketId: string, fileIds: string[], userId: string) {
         try {
-            // Validate that all files exist and belong to the user
+            // Validate ticket exists and user has access
+            await this.getTicketById(ticketId, userId);
+
+            // Get all file metadata to collect download URLs
+            const fileUrls: string[] = [];
             for (const fileId of fileIds) {
                 const file = await this.fileMetadataService.getFileMetadataById(fileId);
-                if (file.userId !== userId) {
+                if (!file.uploader || file.uploader.id !== userId) {
                     throw new ForbiddenException(`You can only attach your own files to tickets`);
                 }
                 // Check if file is already attached to another ticket or reply
-                if (file.supportTicketId || file.ticketReplyId) {
+                if (file.relatedTicket?.id || file.relatedReply?.id) {
                     throw new BadRequestException(`File ${fileId} is already attached to another item`);
+                }
+                if (file.downloadUrl) {
+                    fileUrls.push(file.downloadUrl);
                 }
             }
 
-            // Attach files to the ticket
-            await this.prisma.fileMetadata.updateMany({
-                where: {
-                    id: { in: fileIds },
-                    userId: userId,
-                },
-                data: {
-                    supportTicketId: ticketId,
-                },
-            });
+            // Append file URLs to the ticket's fileUrls array
+            if (fileUrls.length > 0) {
+                await this.prisma.supportTicket.update({
+                    where: { id: ticketId },
+                    data: {
+                        fileUrls: {
+                            push: fileUrls,
+                        },
+                    },
+                });
+            }
 
             this.logger.info(`Attached ${fileIds.length} files to ticket ${ticketId}`);
         } catch (error) {
@@ -645,28 +670,52 @@ export class SupportTicketsService {
      */
     private async attachFilesToReply(replyId: string, fileIds: string[], userId: string) {
         try {
-            // Validate that all files exist and belong to the user
+            // Get the ticket to validate access (reply validation happens in getTicketById)
+            const ticket = await this.prisma.supportTicket.findUnique({
+                where: { id: (await this.prisma.ticketReply.findUnique({ where: { id: replyId } }))?.ticketId },
+                include: { replies: true },
+            });
+            if (!ticket) {
+                throw new NotFoundException('Ticket not found');
+            }
+            const reply = ticket.replies.find(r => r.id === replyId);
+            if (!reply) {
+                throw new NotFoundException('Reply not found');
+            }
+            // Check user permissions (staff or ticket owner)
+            const isStaff = false; // We'll handle this in the calling method
+            const isTicketOwner = ticket.createdById === userId;
+            if (!isStaff && !isTicketOwner) {
+                throw new ForbiddenException('You can only attach files to your own ticket replies');
+            }
+
+            // Get all file metadata to collect download URLs
+            const fileUrls: string[] = [];
             for (const fileId of fileIds) {
                 const file = await this.fileMetadataService.getFileMetadataById(fileId);
-                if (file.userId !== userId) {
+                if (!file.uploader || file.uploader.id !== userId) {
                     throw new ForbiddenException(`You can only attach your own files to replies`);
                 }
                 // Check if file is already attached to another ticket or reply
-                if (file.supportTicketId || file.ticketReplyId) {
+                if (file.relatedTicket?.id || file.relatedReply?.id) {
                     throw new BadRequestException(`File ${fileId} is already attached to another item`);
+                }
+                if (file.downloadUrl) {
+                    fileUrls.push(file.downloadUrl);
                 }
             }
 
-            // Attach files to the reply
-            await this.prisma.fileMetadata.updateMany({
-                where: {
-                    id: { in: fileIds },
-                    userId: userId,
-                },
-                data: {
-                    ticketReplyId: replyId,
-                },
-            });
+            // Append file URLs to the reply's fileUrls array
+            if (fileUrls.length > 0) {
+                await this.prisma.ticketReply.update({
+                    where: { id: replyId },
+                    data: {
+                        fileUrls: {
+                            push: fileUrls,
+                        },
+                    },
+                });
+            }
 
             this.logger.info(`Attached ${fileIds.length} files to reply ${replyId}`);
         } catch (error) {
@@ -680,33 +729,29 @@ export class SupportTicketsService {
      * @param ticketId - Ticket ID
      * @param files - Array of uploaded files
      * @param userId - User ID
-     * @returns Upload result
+     * @returns Array of uploaded file URLs
      */
-    async uploadFilesToTicket(ticketId: string, files: Express.Multer.File[], userId: string) {
+    async uploadFilesToTicket(ticketId: string, files: Express.Multer.File[], userId: string): Promise<string[]> {
         try {
             // Validate ticket exists and user has access
             await this.getTicketById(ticketId, userId, []);
 
-            // TODO: Check current total file size for the ticket via file service
-            // For now, assume no limit check as file service handles it
+            // Use local file service for upload
+            const uploadResult = await this.fileService.uploadFiles(files);
 
-            // Use HTTP call to file service for upload
-            const formData = new FormData();
-            files.forEach((file) => {
-                formData.append('files', new Blob([file.buffer.buffer as any]), file.originalname);
-            });
-            formData.append('ticketId', ticketId);
-            formData.append('userId', userId);
+            // Extract file URLs from the upload result
+            const fileUrls: string[] = [];
+            if (uploadResult.files && uploadResult.files.length > 0) {
+                uploadResult.files.forEach((file) => {
+                    if (file.downloadUrl) {
+                        fileUrls.push(file.downloadUrl);
+                    }
+                });
+            }
 
-            const response = await this.httpService.post('http://file-service/files/upload', formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            }).toPromise();
+            this.logger.info(`Uploaded ${files.length} files to ticket ${ticketId}`);
 
-            this.logger.info(`Uploaded files to ticket ${ticketId}`);
-
-            return response?.data || { success: true };
+            return fileUrls;
         } catch (error) {
             this.logger.error(`Failed to upload files to ticket ${ticketId}`, error.message);
             throw error;
@@ -719,7 +764,7 @@ export class SupportTicketsService {
      * @param files - Array of uploaded files
      * @param ticketId - Ticket ID for access validation
      * @param userId - User ID
-     * @returns Upload result
+     * @returns Upload result with file URLs
      */
     async uploadFilesToReply(replyId: string, ticketId: string, files: Express.Multer.File[], userId: string, userRoles: string[] = []) {
         try {
@@ -730,23 +775,12 @@ export class SupportTicketsService {
                 throw new NotFoundException('Reply not found');
             }
 
-            // Use HTTP call to file service for upload
-            const formData = new FormData();
-            files.forEach((file) => {
-                formData.append('files', new Blob([file.buffer.buffer as any]), file.originalname);
-            });
-            formData.append('replyId', replyId);
-            formData.append('userId', userId);
+            // Use local file service for upload
+            const uploadResult = await this.fileService.uploadFiles(files);
 
-            const response = await this.httpService.post('http://file-service/files/upload', formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            }).toPromise();
+            this.logger.info(`Uploaded ${files.length} files to reply ${replyId}`);
 
-            this.logger.info(`Uploaded files to reply ${replyId}`);
-
-            return response?.data || { success: true };
+            return uploadResult;
         } catch (error) {
             this.logger.error(`Failed to upload files to reply ${replyId}`, error.message);
             throw error;
@@ -762,12 +796,30 @@ export class SupportTicketsService {
     async removeFileFromTicket(ticketId: string, fileId: string, userId: string, userRoles: string[] = []) {
         try {
             // Validate ticket exists and user has access
-            await this.getTicketById(ticketId, userId, userRoles);
+            const ticket = await this.getTicketById(ticketId, userId, userRoles);
 
-            // Use HTTP call to file service to delete
-            await this.httpService.delete(`http://file-service/files/${fileId}`, {
-                data: { userId, ticketId },
-            }).toPromise();
+            // Get file metadata to validate ownership
+            const file = await this.fileMetadataService.getFileMetadataById(fileId);
+            if (!file.uploader || file.uploader.id !== userId) {
+                throw new ForbiddenException('You can only delete your own files');
+            }
+
+            // Check if file is attached to this ticket using fileUrls array
+            if (!ticket.fileUrls || !ticket.fileUrls.includes(file.downloadUrl || '')) {
+                throw new BadRequestException('File is not attached to this ticket');
+            }
+
+            // Use local file service to delete
+            await this.fileService.deleteFile(fileId);
+
+            // Remove file URL from ticket's fileUrls array
+            const updatedFileUrls = ticket.fileUrls.filter(url => url !== file.downloadUrl);
+            await this.prisma.supportTicket.update({
+                where: { id: ticketId },
+                data: {
+                    fileUrls: updatedFileUrls,
+                },
+            });
 
             this.logger.info(`Removed file ${fileId} from ticket ${ticketId}`);
         } catch (error) {
@@ -793,10 +845,28 @@ export class SupportTicketsService {
                 throw new NotFoundException('Reply not found');
             }
 
-            // Use HTTP call to file service to delete
-            await this.httpService.delete(`http://file-service/files/${fileId}`, {
-                data: { userId, replyId },
-            }).toPromise();
+            // Get file metadata to validate ownership
+            const file = await this.fileMetadataService.getFileMetadataById(fileId);
+            if (!file.uploader || file.uploader.id !== userId) {
+                throw new ForbiddenException('You can only delete your own files');
+            }
+
+            // Check if file is attached to this reply using fileUrls array
+            if (!reply.fileUrls || !reply.fileUrls.includes(file.downloadUrl || '')) {
+                throw new BadRequestException('File is not attached to this reply');
+            }
+
+            // Use local file service to delete
+            await this.fileService.deleteFile(fileId);
+
+            // Remove file URL from reply's fileUrls array
+            const updatedFileUrls = reply.fileUrls.filter(url => url !== file.downloadUrl);
+            await this.prisma.ticketReply.update({
+                where: { id: replyId },
+                data: {
+                    fileUrls: updatedFileUrls,
+                },
+            });
 
             this.logger.info(`Removed file ${fileId} from reply ${replyId}`);
         } catch (error) {

@@ -188,6 +188,7 @@ CREATE TABLE "public"."support_tickets" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "closedAt" TIMESTAMP(3),
+    "fileUrls" TEXT[] DEFAULT ARRAY[]::TEXT[],
 
     CONSTRAINT "support_tickets_pkey" PRIMARY KEY ("id")
 );
@@ -201,6 +202,7 @@ CREATE TABLE "public"."ticket_replies" (
     "isInternal" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "fileUrls" TEXT[] DEFAULT ARRAY[]::TEXT[],
 
     CONSTRAINT "ticket_replies_pkey" PRIMARY KEY ("id")
 );
@@ -228,9 +230,16 @@ CREATE TABLE "public"."file_metadata" (
     "mimeType" TEXT NOT NULL,
     "size" INTEGER NOT NULL,
     "path" TEXT NOT NULL,
-    "uploadedById" TEXT NOT NULL,
-    "relatedTicketId" TEXT,
-    "relatedReplyId" TEXT,
+    "category" TEXT,
+    "securityStatus" TEXT,
+    "processingStatus" TEXT,
+    "storageProvider" TEXT NOT NULL,
+    "storageKey" TEXT,
+    "storageUrl" TEXT,
+    "storageBucket" TEXT,
+    "storageRegion" TEXT,
+    "checksum" TEXT,
+    "expiresAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "file_metadata_pkey" PRIMARY KEY ("id")
@@ -401,13 +410,28 @@ CREATE INDEX "ticket_reopen_requests_requestedById_idx" ON "public"."ticket_reop
 CREATE INDEX "ticket_reopen_requests_status_idx" ON "public"."ticket_reopen_requests"("status");
 
 -- CreateIndex
-CREATE INDEX "file_metadata_uploadedById_idx" ON "public"."file_metadata"("uploadedById");
+CREATE UNIQUE INDEX "file_metadata_storageKey_key" ON "public"."file_metadata"("storageKey");
 
 -- CreateIndex
-CREATE INDEX "file_metadata_relatedTicketId_idx" ON "public"."file_metadata"("relatedTicketId");
+CREATE INDEX "file_metadata_category_idx" ON "public"."file_metadata"("category");
 
 -- CreateIndex
-CREATE INDEX "file_metadata_relatedReplyId_idx" ON "public"."file_metadata"("relatedReplyId");
+CREATE INDEX "file_metadata_securityStatus_idx" ON "public"."file_metadata"("securityStatus");
+
+-- CreateIndex
+CREATE INDEX "file_metadata_processingStatus_idx" ON "public"."file_metadata"("processingStatus");
+
+-- CreateIndex
+CREATE INDEX "file_metadata_createdAt_idx" ON "public"."file_metadata"("createdAt");
+
+-- CreateIndex
+CREATE INDEX "file_metadata_storageProvider_idx" ON "public"."file_metadata"("storageProvider");
+
+-- CreateIndex
+CREATE INDEX "file_metadata_storageKey_idx" ON "public"."file_metadata"("storageKey");
+
+-- CreateIndex
+CREATE INDEX "file_metadata_storageProvider_createdAt_idx" ON "public"."file_metadata"("storageProvider", "createdAt");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ImpersonationSession_targetId_key" ON "public"."ImpersonationSession"("targetId");
@@ -461,13 +485,13 @@ ALTER TABLE "public"."sgtm_containers" ADD CONSTRAINT "sgtm_containers_userId_fk
 ALTER TABLE "public"."sgtm_containers" ADD CONSTRAINT "sgtm_containers_regionKey_fkey" FOREIGN KEY ("regionKey") REFERENCES "public"."sgtm_regions"("key") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "public"."meta_capi_containers" ADD CONSTRAINT "meta_capi_containers_user_id_fkey" FOREIGN KEY ("userId") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."meta_capi_containers" ADD CONSTRAINT "meta_capi_containers_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."meta_capi_containers" ADD CONSTRAINT "meta_capi_containers_regionKey_fkey" FOREIGN KEY ("regionKey") REFERENCES "public"."meta_capi_regions"("key") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "public"."meta_capi_containers" ADD CONSTRAINT "meta_capi_containers_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."meta_capi_containers" ADD CONSTRAINT "meta_capi_containers_user_id_fkey2" FOREIGN KEY ("userId") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."support_tickets" ADD CONSTRAINT "support_tickets_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -489,15 +513,6 @@ ALTER TABLE "public"."ticket_reopen_requests" ADD CONSTRAINT "ticket_reopen_requ
 
 -- AddForeignKey
 ALTER TABLE "public"."ticket_reopen_requests" ADD CONSTRAINT "ticket_reopen_requests_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "public"."users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."file_metadata" ADD CONSTRAINT "file_metadata_uploadedById_fkey" FOREIGN KEY ("uploadedById") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."file_metadata" ADD CONSTRAINT "file_metadata_relatedTicketId_fkey" FOREIGN KEY ("relatedTicketId") REFERENCES "public"."support_tickets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."file_metadata" ADD CONSTRAINT "file_metadata_relatedReplyId_fkey" FOREIGN KEY ("relatedReplyId") REFERENCES "public"."ticket_replies"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."ImpersonationSession" ADD CONSTRAINT "ImpersonationSession_adminId_fkey" FOREIGN KEY ("adminId") REFERENCES "public"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

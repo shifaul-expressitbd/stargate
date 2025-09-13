@@ -157,6 +157,34 @@ export interface S3StorageOptions extends StorageOptions {
 }
 
 /**
+ * Cloudflare R2 storage specific options
+ */
+export interface R2StorageOptions extends StorageOptions {
+    provider: StorageProvider.CLOUDFLARE_R2;
+
+    /** Cloudflare account ID */
+    accountId: string;
+
+    /** Cloudflare R2 access key ID */
+    accessKeyId: string;
+
+    /** Cloudflare R2 secret access key */
+    secretAccessKey: string;
+
+    /** R2 bucket name */
+    bucket: string;
+
+    /** R2 endpoint URL (e.g., https://<accountId>.r2.cloudflarestorage.com) */
+    endpoint: string;
+
+    /** Public URL for serving files */
+    publicUrl?: string;
+
+    /** Custom metadata */
+    metadata?: Record<string, any>;
+}
+
+/**
  * Google Cloud Storage specific options
  */
 export interface GoogleCloudStorageOptions extends StorageOptions {
@@ -206,6 +234,7 @@ export type AllStorageOptions =
     | CloudinaryStorageOptions
     | MinIOStorageOptions
     | S3StorageOptions
+    | R2StorageOptions
     | GoogleCloudStorageOptions;
 
 /**

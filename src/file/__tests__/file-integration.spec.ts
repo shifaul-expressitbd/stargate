@@ -16,6 +16,8 @@ import { StorageSelectorService } from '../services/storage-selector.service';
 // Mock all external dependencies
 jest.mock('@aws-sdk/client-s3');
 jest.mock('@aws-sdk/s3-request-presigner');
+jest.mock('@prisma/client');
+jest.mock('../../database/prisma/prisma.service');
 jest.mock('cloudinary');
 jest.mock('fs');
 jest.mock('path');

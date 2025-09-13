@@ -11,8 +11,9 @@ import {
     GoogleCloudStorageOptions,
     LocalStorageOptions,
     MinIOStorageOptions,
+    R2StorageOptions,
     S3StorageOptions,
-    StorageConfig,
+    StorageConfig
 } from '../interfaces/storage-options.interface';
 import { StorageProvider } from '../interfaces/storage.interface';
 
@@ -131,6 +132,9 @@ export class StorageConfigService {
             case StorageProvider.S3:
                 this.validateS3Config(config);
                 break;
+            case StorageProvider.CLOUDFLARE_R2:
+                this.validateR2Config(config);
+                break;
             case StorageProvider.GOOGLE_CLOUD:
                 this.validateGoogleCloudConfig(config);
                 break;
@@ -188,6 +192,18 @@ export class StorageConfigService {
     }
 
     /**
+     * Validate Cloudflare R2 configuration
+     */
+    private validateR2Config(config: R2StorageOptions): void {
+        const required = ['accountId', 'accessKeyId', 'secretAccessKey', 'bucket', 'endpoint'];
+        for (const field of required) {
+            if (!config[field as keyof R2StorageOptions]) {
+                throw new Error(`Cloudflare R2 storage requires ${field} configuration`);
+            }
+        }
+    }
+
+    /**
      * Validate Google Cloud Storage configuration
      */
     private validateGoogleCloudConfig(config: GoogleCloudStorageOptions): void {
@@ -229,6 +245,7 @@ export class StorageConfigService {
         this.loadCloudinaryConfig();
         this.loadMinIOConfig();
         this.loadS3Config();
+        this.loadR2Config();
         this.loadGoogleCloudConfig();
 
         // Set default provider from environment
@@ -317,6 +334,31 @@ export class StorageConfigService {
                 endpoint: this.configService.get<string>('STORAGE_S3_ENDPOINT'),
                 forcePathStyle: this.configService.get<boolean>('STORAGE_S3_FORCE_PATH_STYLE', false),
                 storageClass: storageClassValue as StorageClass,
+            };
+        }
+    }
+
+    /**
+     * Load Cloudflare R2 configuration
+     */
+    private loadR2Config(): void {
+        const accountId = this.configService.get<string>('STORAGE_R2_ACCOUNT_ID');
+        const accessKeyId = this.configService.get<string>('STORAGE_R2_ACCESS_KEY_ID');
+        const secretAccessKey = this.configService.get<string>('STORAGE_R2_SECRET_ACCESS_KEY');
+        const bucket = this.configService.get<string>('STORAGE_R2_BUCKET');
+
+        if (accountId && accessKeyId && secretAccessKey && bucket) {
+            const endpoint = this.configService.get<string>('STORAGE_R2_ENDPOINT') ||
+                `https://${accountId}.r2.cloudflarestorage.com`;
+
+            this.storageConfig.providers[StorageProvider.CLOUDFLARE_R2] = {
+                provider: StorageProvider.CLOUDFLARE_R2,
+                accountId,
+                accessKeyId,
+                secretAccessKey,
+                bucket,
+                endpoint,
+                publicUrl: this.configService.get<string>('STORAGE_R2_PUBLIC_URL'),
             };
         }
     }

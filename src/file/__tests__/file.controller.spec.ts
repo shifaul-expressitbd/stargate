@@ -6,7 +6,9 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { FileController } from '../file.controller';
+import { FileCategory } from '../interfaces/file-metadata.interface';
 import { MulterFile } from '../interfaces/file-options.interface';
+import { StorageProvider } from '../interfaces/storage.interface';
 import { FileService } from '../services/file.service';
 
 const mockFileService = {
@@ -113,8 +115,7 @@ describe('FileController', () => {
                     duration: expect.any(Number),
                 });
                 expect(mockFileService.uploadFiles).toHaveBeenCalledWith(files, {
-                    storageProvider: 's3',
-                    category: 'document'
+                    storageProvider: 's3'
                 });
             });
 
@@ -136,7 +137,8 @@ describe('FileController', () => {
                         cloudinary: 0,
                         local: 0,
                         minio: 0,
-                        google_cloud: 0
+                        google_cloud: 0,
+                        cloudflare_r2: 0
                     }
                 });
             });
@@ -160,6 +162,7 @@ describe('FileController', () => {
                     success: true,
                     storageProviderSummary: {
                         s3: 0,
+                        cloudflare_r2: 0,
                         cloudinary: 0,
                         local: 0,
                         minio: 0,
@@ -250,7 +253,7 @@ describe('FileController', () => {
     describe('File Listing', () => {
         describe('GET /files', () => {
             it('should get all files with default parameters', async () => {
-                const result = await controller.getAllFiles();
+                const result = await controller.getAllFiles({ page: 1, limit: 20 });
 
                 expect(result).toEqual({
                     files: [mockFileMetadata],
@@ -272,7 +275,7 @@ describe('FileController', () => {
             });
 
             it('should get files with custom pagination', async () => {
-                const result = await controller.getAllFiles('2', '10');
+                const result = await controller.getAllFiles({ page: 2, limit: 10 });
 
                 expect(mockFileService.getAllFiles).toHaveBeenCalledWith({
                     page: 2,
@@ -283,24 +286,23 @@ describe('FileController', () => {
             });
 
             it('should get files with filters', async () => {
-                const result = await controller.getAllFiles('1', '20', 's3', 'document');
+                const result = await controller.getAllFiles({ page: 1, limit: 20, storageProvider: StorageProvider.S3, category: FileCategory.DOCUMENT });
 
                 expect(mockFileService.getAllFiles).toHaveBeenCalledWith({
                     page: 1,
                     limit: 20,
-                    storageProvider: 's3',
-                    category: 'document',
+                    storageProvider: StorageProvider.S3,
+                    category: FileCategory.DOCUMENT,
                 });
             });
 
             it('should handle invalid pagination parameters', async () => {
-                const result = await controller.getAllFiles('invalid', 'invalid');
+                const result = await controller.getAllFiles({ page: 'invalid' as any, limit: 'invalid' as any });
 
-                // Should use default values (parseInt of 'invalid' gives NaN, so defaults apply)
-                // The actual implementation would handle NaN values
+                // Should pass through invalid values as received (no transformation in test environment)
                 expect(mockFileService.getAllFiles).toHaveBeenCalledWith({
-                    page: NaN,
-                    limit: NaN,
+                    page: 'invalid',
+                    limit: 'invalid',
                     storageProvider: undefined,
                     category: undefined,
                 });
@@ -309,7 +311,7 @@ describe('FileController', () => {
             it('should handle service errors', async () => {
                 mockFileService.getAllFiles.mockRejectedValue(new Error('Service error'));
 
-                await expect(controller.getAllFiles()).rejects.toThrow();
+                await expect(controller.getAllFiles({ page: 1, limit: 20 })).rejects.toThrow();
             });
         });
     });
@@ -349,14 +351,14 @@ describe('FileController', () => {
         it('should handle multipart form data correctly', async () => {
             // Test that files are processed as expected from multer
             const files = [mockMulterFile];
-            const body = { category: 'document' };
+            const body = { storageProvider: 's3' };
             const startTime = Date.now();
 
             await controller.uploadFiles(body, files);
 
             // Verify timing is captured
             expect(mockFileService.uploadFiles).toHaveBeenCalledWith(files, {
-                category: 'document'
+                storageProvider: 's3'
             });
         });
 
@@ -405,13 +407,13 @@ describe('FileController', () => {
 
         it('should handle query parameter validation', async () => {
             // Test with various query parameters
-            await controller.getAllFiles('1', '50', 'local', 'image');
+            await controller.getAllFiles({ page: 1, limit: 50, storageProvider: StorageProvider.LOCAL, category: FileCategory.IMAGE });
 
             expect(mockFileService.getAllFiles).toHaveBeenCalledWith({
                 page: 1,
                 limit: 50,
-                storageProvider: 'local',
-                category: 'image',
+                storageProvider: StorageProvider.LOCAL,
+                category: FileCategory.IMAGE,
             });
         });
 
@@ -452,7 +454,7 @@ describe('FileController', () => {
         });
 
         it('should handle file listing response format', async () => {
-            const result = await controller.getAllFiles();
+            const result = await controller.getAllFiles({ page: 1, limit: 20 });
 
             expect(result).toHaveProperty('files');
             expect(result).toHaveProperty('pagination');
