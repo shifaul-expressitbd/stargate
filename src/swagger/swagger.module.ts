@@ -3,6 +3,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common/interfaces';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule as NestSwaggerModule } from '@nestjs/swagger';
+import { UrlConfigService } from 'src/config/url.config';
 import { createSwaggerConfig, SWAGGER_CONFIG } from './swagger.config';
 
 @Injectable()
@@ -12,7 +13,8 @@ export class SwaggerService implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly app: INestApplication,
-  ) {}
+    private readonly urlConfigService?: UrlConfigService,
+  ) { }
 
   onModuleInit() {
     if (this.configService.get('NODE_ENV') === 'development') {
@@ -21,7 +23,8 @@ export class SwaggerService implements OnModuleInit {
   }
 
   private setupSwagger() {
-    const config = createSwaggerConfig();
+    const baseUrl = this.urlConfigService?.getBaseUrl() || 'http://localhost:5555';
+    const config = createSwaggerConfig(baseUrl);
 
     SWAGGER_CONFIG.tags.forEach((tag) => {
       config.addTag(tag.name, tag.description);

@@ -14,7 +14,7 @@ export class SwaggerService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly app: INestApplication,
     private readonly urlConfigService?: UrlConfigService,
-  ) {}
+  ) { }
 
   onModuleInit(): void {
     if (this.configService.get('NODE_ENV') !== 'production') {
@@ -23,7 +23,8 @@ export class SwaggerService implements OnModuleInit {
   }
 
   private setupSwagger(): void {
-    const documentBuilder = createSwaggerConfig();
+    const baseUrl = this.urlConfigService?.getBaseUrl() || 'http://localhost:5555';
+    const documentBuilder = createSwaggerConfig(baseUrl);
 
     // Add tags in the exact order specified
     SWAGGER_CONFIG.tags.forEach((tag) => {
@@ -40,9 +41,7 @@ export class SwaggerService implements OnModuleInit {
       document['x-tagGroups'] = SWAGGER_CONFIG['x-tagGroups'];
     }
 
-    const baseUrl =
-      this.urlConfigService?.getBaseUrl() ||
-      this.configService.get('FRONTEND_URL', 'http://localhost:5555');
+    // baseUrl is already defined above
     const swaggerDocsUrl =
       this.urlConfigService?.getSwaggerUrl() || `${baseUrl}/api/docs`;
     const googleClientId = this.configService.get('GOOGLE_CLIENT_ID');

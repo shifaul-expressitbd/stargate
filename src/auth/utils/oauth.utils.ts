@@ -9,7 +9,7 @@ export class OAuthUtils {
    */
   static getOAuthConfig(provider: string, configService: ConfigService): any {
     const baseUrl =
-      configService.get<string>('BASE_URL') || 'http://localhost:5555';
+      configService.get<string>('BACKEND_URL') || 'http://localhost:5555';
 
     const configs = {
       google: {

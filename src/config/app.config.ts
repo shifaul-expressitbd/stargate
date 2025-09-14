@@ -17,7 +17,7 @@ export const appConfig = () => {
   if (missingVars.length > 0) {
     throw new Error(
       `Missing required environment variables: ${missingVars.join(', ')}\n` +
-        'Please check your .env file and ensure these variables are set.',
+      'Please check your .env file and ensure these variables are set.',
     );
   }
 
@@ -103,7 +103,7 @@ export const appConfig = () => {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
       callbackUrl:
         process.env.GOOGLE_CALLBACK_URL ??
-        'http://localhost:5555/auth/google/callback',
+        `${process.env.BACKEND_URL ?? 'http://localhost:5555'}/api/auth/google/callback`,
     },
     // Facebook OAuth configuration
     facebook: {
@@ -111,12 +111,12 @@ export const appConfig = () => {
       appSecret: process.env.FACEBOOK_APP_SECRET ?? '',
       callbackUrl:
         process.env.FACEBOOK_CALLBACK_URL ??
-        'http://localhost:5555/api/auth/facebook/callback',
+        `${process.env.BACKEND_URL ?? 'http://localhost:5555'}/api/auth/facebook/callback`,
     },
 
     // Frontend configuration
     frontend: {
-      url: process.env.FRONTEND_URL ?? 'http://localhost:5173',
+      url: process.env.FRONTEND_URL ?? 'http://localhost:4173',
     },
 
     // CORS configuration
@@ -124,7 +124,7 @@ export const appConfig = () => {
       origin:
         process.env.CORS_ORIGIN ??
         process.env.FRONTEND_URL ??
-        'http://localhost:5173',
+        'http://localhost:4173',
       credentials: true,
     },
 

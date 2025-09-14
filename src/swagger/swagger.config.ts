@@ -80,7 +80,7 @@ export const SWAGGER_CONFIG = {
   ],
 };
 
-export function createSwaggerConfig() {
+export function createSwaggerConfig(baseUrl: string) {
   const config = new DocumentBuilder()
     .setTitle(SWAGGER_CONFIG.title)
     .setDescription(SWAGGER_CONFIG.description)
@@ -120,8 +120,8 @@ export function createSwaggerConfig() {
     )
 
     // Add tag groups to force order in Swagger UI
-    .addServer('http://localhost:5555')
-    .setExternalDoc('API Documentation', 'http://localhost:5555/api/docs');
+    .addServer(baseUrl)
+    .setExternalDoc('API Documentation', `${baseUrl}/api/docs`);
 
   // ✅ Google OAuth
   // .addOAuth2(
