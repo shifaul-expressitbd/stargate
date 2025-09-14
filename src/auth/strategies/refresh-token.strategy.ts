@@ -4,7 +4,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { LoggerService } from 'src/utils/logger/logger.service';
 import { PrismaService } from '../../database/prisma/prisma.service';
-import { JwtPayload } from '../auth.service';
+import { JwtPayload } from '../shared/interfaces/jwt-payload.interface';
 
 @Injectable()
 export class RefreshTokenStrategy extends PassportStrategy(

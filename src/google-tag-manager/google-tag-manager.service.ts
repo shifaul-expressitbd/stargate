@@ -5,9 +5,9 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { google, tagmanager_v2 } from 'googleapis';
-import { AuthService } from '../auth/auth.service';
 import { createHash } from 'crypto';
+import { google, tagmanager_v2 } from 'googleapis';
+import { OAuthService } from 'src/auth/services/oauth.service';
 
 interface GoogleUser {
   id: string;
@@ -22,7 +22,7 @@ export class GoogleTagManagerService {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly authService: AuthService,
+    private readonly oAuthService: OAuthService,
   ) {}
 
   /**
@@ -48,7 +48,7 @@ export class GoogleTagManagerService {
    */
   private async initializeGtmWithToken(accessToken: string): Promise<void> {
     try {
-      const oauth2Client = await this.authService.getGoogleOAuth2Client();
+      const oauth2Client = await this.oAuthService.getGoogleOAuth2Client();
       oauth2Client.setCredentials({ access_token: accessToken });
 
       this.gtm = google.tagmanager({
@@ -83,7 +83,7 @@ export class GoogleTagManagerService {
 
     try {
       this.logger.debug(`Fetching Google tokens for user ID: ${user.id}`);
-      const { accessToken } = await this.authService.getGoogleTokens(user.id);
+      const { accessToken } = await this.oAuthService.getGoogleTokens(user.id);
 
       if (!accessToken) {
         throw new UnauthorizedException('No access token found for user');
@@ -137,7 +137,7 @@ export class GoogleTagManagerService {
     }
 
     try {
-      const { accessToken } = await this.authService.getGoogleTokens(user.id);
+      const { accessToken } = await this.oAuthService.getGoogleTokens(user.id);
       await this.initializeGtmWithToken(accessToken);
 
       const parent = `accounts/${accountId}`;
@@ -176,7 +176,7 @@ export class GoogleTagManagerService {
     }
 
     try {
-      const { accessToken } = await this.authService.getGoogleTokens(user.id);
+      const { accessToken } = await this.oAuthService.getGoogleTokens(user.id);
 
       if (!accessToken) {
         throw new UnauthorizedException('No access token found for user');
@@ -431,7 +431,7 @@ export class GoogleTagManagerService {
     }
 
     try {
-      const { accessToken } = await this.authService.getGoogleTokens(user.id);
+      const { accessToken } = await this.oAuthService.getGoogleTokens(user.id);
       await this.initializeGtmWithToken(accessToken);
 
       // Get the latest published version for the container
@@ -440,20 +440,24 @@ export class GoogleTagManagerService {
 
       // Get the container's published version (latest live version)
       try {
-        const response = await this.gtm.accounts.containers.version_headers.latest({
-          parent: containerPath,
-        });
+        const response =
+          await this.gtm.accounts.containers.version_headers.latest({
+            parent: containerPath,
+          });
 
         if (response.data?.containerVersionId) {
           // Get the full version details
           const fullVersionPath = `${containerPath}/versions/${response.data.containerVersionId}`;
-          const versionResponse = await this.gtm.accounts.containers.versions.get({
-            path: fullVersionPath,
-          });
+          const versionResponse =
+            await this.gtm.accounts.containers.versions.get({
+              path: fullVersionPath,
+            });
           latestVersionConfig = versionResponse.data;
         }
       } catch (versionError) {
-        this.logger.warn(`Could not get latest version: ${versionError.message}`);
+        this.logger.warn(
+          `Could not get latest version: ${versionError.message}`,
+        );
       }
 
       return {
@@ -504,7 +508,7 @@ export class GoogleTagManagerService {
     }
 
     try {
-      const { accessToken } = await this.authService.getGoogleTokens(user.id);
+      const { accessToken } = await this.oAuthService.getGoogleTokens(user.id);
       await this.initializeGtmWithToken(accessToken);
 
       // First get the container info to check if it's server-side and get workspace
@@ -517,7 +521,9 @@ export class GoogleTagManagerService {
 
       // Check if this is a server container
       if (!container?.usageContext?.includes('server')) {
-        throw new BadRequestException('Container configuration is only available for server-side containers');
+        throw new BadRequestException(
+          'Container configuration is only available for server-side containers',
+        );
       }
 
       // Get the default workspace (server containers typically have one workspace)
@@ -527,7 +533,9 @@ export class GoogleTagManagerService {
           parent: containerPath,
         });
       } catch (workspaceError) {
-        this.logger.warn(`Could not list workspaces: ${workspaceError.message}`);
+        this.logger.warn(
+          `Could not list workspaces: ${workspaceError.message}`,
+        );
         return {
           success: true,
           data: {
@@ -535,7 +543,9 @@ export class GoogleTagManagerService {
             workspaceId: undefined,
             gtagConfig: undefined,
             serverEnvironmentVariables: [],
-            manualProvisioningConfig: Buffer.from(`id=${container?.publicId}&env=1&auth=${this.generateAuthToken(String(container?.containerId))}`).toString('base64'), // Base64 encoded fallback with auth
+            manualProvisioningConfig: Buffer.from(
+              `id=${container?.publicId}&env=1&auth=${this.generateAuthToken(String(container?.containerId))}`,
+            ).toString('base64'), // Base64 encoded fallback with auth
           },
         };
       }
@@ -552,68 +562,87 @@ export class GoogleTagManagerService {
       // Get environments to find production environment and its auth token
       let productionEnvironmentAuthToken: string | undefined = undefined;
       try {
-        const environmentsResponse = await this.gtm.accounts.containers.environments.list({
-          parent: containerPath,
-        });
+        const environmentsResponse =
+          await this.gtm.accounts.containers.environments.list({
+            parent: containerPath,
+          });
 
         if (environmentsResponse.data?.environment) {
           // Find production environment (usually has specific name)
-          const productionEnvironment = environmentsResponse.data.environment.find(
-            env => env.name?.toLowerCase().includes('live') ||
-                   env.name?.toLowerCase().includes('prod') ||
-                   env.name?.toLowerCase().includes('production')
-          ) || environmentsResponse.data.environment[0]; // Default to first environment
+          const productionEnvironment =
+            environmentsResponse.data.environment.find(
+              (env) =>
+                env.name?.toLowerCase().includes('live') ||
+                env.name?.toLowerCase().includes('prod') ||
+                env.name?.toLowerCase().includes('production'),
+            ) || environmentsResponse.data.environment[0]; // Default to first environment
 
           if (productionEnvironment?.containerVersionId) {
             // Get the environment details to check for authorization token
             try {
               const envPath = `${containerPath}/environments/${productionEnvironment.environmentId}`;
-              const envResponse = await this.gtm.accounts.containers.environments.get({
-                path: envPath,
-              });
+              const envResponse =
+                await this.gtm.accounts.containers.environments.get({
+                  path: envPath,
+                });
 
               // Use authorization code from environment if available
               // This is the server-side GTM authorization code for manual provisioning
               const env = envResponse.data as any;
               if (env.authorizationCode) {
                 productionEnvironmentAuthToken = env.authorizationCode;
-                this.logger.debug(`Found environment authorization code for: ${productionEnvironment.name} (ID: ${productionEnvironment.environmentId})`);
+                this.logger.debug(
+                  `Found environment authorization code for: ${productionEnvironment.name} (ID: ${productionEnvironment.environmentId})`,
+                );
               } else {
-                this.logger.debug(`Production environment found (no auth code): ${productionEnvironment.name} (ID: ${productionEnvironment.environmentId})`);
+                this.logger.debug(
+                  `Production environment found (no auth code): ${productionEnvironment.name} (ID: ${productionEnvironment.environmentId})`,
+                );
               }
             } catch (envError) {
-              this.logger.warn(`Could not get environment details: ${envError.message}`);
+              this.logger.warn(
+                `Could not get environment details: ${envError.message}`,
+              );
             }
           }
         }
       } catch (envListError) {
-        this.logger.warn(`Could not list environments: ${envListError.message}`);
+        this.logger.warn(
+          `Could not list environments: ${envListError.message}`,
+        );
         // Continue without environment auth token
       }
 
       // Get the published version which contains the configuration needed for manual provisioning
       try {
-        const versionHeaderResponse = await this.gtm.accounts.containers.version_headers.latest({
-          parent: containerPath,
-        });
+        const versionHeaderResponse =
+          await this.gtm.accounts.containers.version_headers.latest({
+            parent: containerPath,
+          });
 
         const latestVersion = versionHeaderResponse.data;
 
         if (!latestVersion?.containerVersionId) {
-          throw new BadRequestException('No published version found for this container');
+          throw new BadRequestException(
+            'No published version found for this container',
+          );
         }
 
         // Get the full container version details
         const versionPath = `${containerPath}/versions/${latestVersion.containerVersionId}`;
-        const versionResponse = await this.gtm.accounts.containers.versions.get({
-          path: versionPath,
-        });
+        const versionResponse = await this.gtm.accounts.containers.versions.get(
+          {
+            path: versionPath,
+          },
+        );
 
         const fullVersion = versionResponse.data;
 
         // For manual provisioning, create the Base64 encoded config string with auth parameter
         // Use environment authorization code if available, otherwise use provided token
-        const authValue = productionEnvironmentAuthToken || this.generateAuthToken(String(container?.containerId));
+        const authValue =
+          productionEnvironmentAuthToken ||
+          this.generateAuthToken(String(container?.containerId));
 
         const configParams = {
           id: container?.publicId,
@@ -626,7 +655,8 @@ export class GoogleTagManagerService {
           .join('&');
 
         // For server-side GTM manual provisioning, the config should be Base64 encoded
-        const manualProvisioningConfig = Buffer.from(configQueryString).toString('base64');
+        const manualProvisioningConfig =
+          Buffer.from(configQueryString).toString('base64');
 
         return {
           success: true,
@@ -646,7 +676,9 @@ export class GoogleTagManagerService {
           },
         };
       } catch (versionError) {
-        this.logger.warn(`Could not get published version: ${versionError.message}`);
+        this.logger.warn(
+          `Could not get published version: ${versionError.message}`,
+        );
         // Return basic config info even if version retrieval fails
         return {
           success: true,
@@ -655,7 +687,9 @@ export class GoogleTagManagerService {
             workspaceId,
             gtagConfig: undefined,
             serverEnvironmentVariables: [],
-            manualProvisioningConfig: Buffer.from(`id=${container?.publicId}&env=1&auth=${this.generateAuthToken(String(container?.containerId))}`).toString('base64'),
+            manualProvisioningConfig: Buffer.from(
+              `id=${container?.publicId}&env=1&auth=${this.generateAuthToken(String(container?.containerId))}`,
+            ).toString('base64'),
           },
         };
       }

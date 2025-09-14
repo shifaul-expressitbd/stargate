@@ -7,16 +7,12 @@ import { LoggerService } from 'src/utils/logger/logger.service';
 import { MailModule } from '../mail/mail.module';
 import { UsersModule } from '../users/users.module';
 
-// Original monolithic controller and service (for backward compatibility)
-import { AuthService } from './auth.service';
-
 // New specialized controllers
 import { AuthController } from './controllers/auth.controller';
 import { OAuthController } from './controllers/oauth.controller';
 import { SessionController } from './controllers/session.controller';
 import { TwoFactorController } from './controllers/two-factor.controller';
 
-// New specialized services
 import { AuthCoreService } from './services/auth-core.service';
 import { OAuthService } from './services/oauth.service';
 import { SessionService } from './services/session.service';
@@ -91,9 +87,6 @@ import { RefreshTokenStrategy } from './strategies/refresh-token.strategy';
     // Logger service
     LoggerService,
 
-    // Original monolithic service (for backward compatibility during transition)
-    AuthService,
-
     // OAuth strategies
     LocalStrategy,
     JwtStrategy,
@@ -110,9 +103,6 @@ import { RefreshTokenStrategy } from './strategies/refresh-token.strategy';
     TwoFactorService,
     SessionService,
     TokenService,
-
-    // Export original service for backward compatibility
-    AuthService,
 
     // Export JWT and Passport modules
     JwtModule,

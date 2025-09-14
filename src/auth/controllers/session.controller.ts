@@ -3,7 +3,6 @@ import {
   Controller,
   Delete,
   Get,
-  Logger,
   NotFoundException,
   Param,
   Query,
@@ -22,42 +21,15 @@ import type { Request } from 'express';
 
 import { User } from '../../common/decorators/user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { BaseController } from '../base/base.controller';
 import { SessionService } from '../services/session.service';
-
-interface ApiResponse<T = any> {
-  success: boolean;
-  message: string;
-  data?: T;
-  error?: string;
-  code?: string;
-}
+import type { ApiResponse as ApiResponseType } from '../shared/interfaces/api-response.interface';
 
 @ApiTags('Session Management')
 @Controller('auth/sessions')
-export class SessionController {
-  private readonly logger = new Logger(SessionController.name);
-
-  constructor(private readonly sessionService: SessionService) {}
-
-  private createSuccessResponse<T>(message: string, data?: T): ApiResponse<T> {
-    return {
-      success: true,
-      message,
-      data,
-    };
-  }
-
-  private createErrorResponse(
-    message: string,
-    error?: string,
-    code?: string,
-  ): ApiResponse {
-    return {
-      success: false,
-      message,
-      error,
-      code,
-    };
+export class SessionController extends BaseController {
+  constructor(private readonly sessionService: SessionService) {
+    super();
   }
 
   @UseGuards(JwtAuthGuard)
@@ -93,7 +65,9 @@ export class SessionController {
       },
     },
   })
-  async getActiveSessions(@User('id') userId: string): Promise<ApiResponse> {
+  async getActiveSessions(
+    @User('id') userId: string,
+  ): Promise<ApiResponseType> {
     try {
       const sessions = await this.sessionService.getActiveSessions(userId);
       return this.createSuccessResponse(
@@ -101,13 +75,10 @@ export class SessionController {
         sessions,
       );
     } catch (error) {
-      this.logger.error('Failed to get active sessions:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to get active sessions',
-          'SESSION_ERROR',
-          'GET_SESSIONS_FAILED',
-        ),
+      return this.handleServiceError(
+        'getActiveSessions',
+        error,
+        'Failed to get active sessions',
       );
     }
   }
@@ -136,7 +107,7 @@ export class SessionController {
       },
     },
   })
-  async getSessionHealth(@User('id') userId: string): Promise<ApiResponse> {
+  async getSessionHealth(@User('id') userId: string): Promise<ApiResponseType> {
     try {
       const healthData = await this.sessionService.getSessionHealth(userId);
       return this.createSuccessResponse(
@@ -144,13 +115,10 @@ export class SessionController {
         healthData,
       );
     } catch (error) {
-      this.logger.error('Failed to get session health:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to get session health',
-          'SESSION_ERROR',
-          'HEALTH_CHECK_FAILED',
-        ),
+      return this.handleServiceError(
+        'getSessionHealth',
+        error,
+        'Failed to get session health',
       );
     }
   }
@@ -181,7 +149,7 @@ export class SessionController {
     @User('id') userId: string,
     @Param('sessionId') sessionId: string,
     @Req() req: Request,
-  ): Promise<ApiResponse> {
+  ): Promise<ApiResponseType> {
     try {
       await this.sessionService.invalidateSession(userId, sessionId);
 
@@ -198,22 +166,13 @@ export class SessionController {
       return this.createSuccessResponse('Session invalidated successfully');
     } catch (error) {
       if (error instanceof NotFoundException) {
-        throw new NotFoundException(
-          this.createErrorResponse(
-            error.message,
-            'SESSION_ERROR',
-            'SESSION_NOT_FOUND',
-          ),
-        );
+        throw error; // Keep not found errors as HttpExceptions
       }
 
-      this.logger.error('Failed to invalidate session:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to invalidate session',
-          'SESSION_ERROR',
-          'INVALIDATE_SESSION_FAILED',
-        ),
+      return this.handleServiceError(
+        'invalidateSession',
+        error,
+        'Failed to invalidate session',
       );
     }
   }
@@ -235,7 +194,7 @@ export class SessionController {
       },
     },
   })
-  async invalidateOtherSessions(@User() user: any): Promise<ApiResponse> {
+  async invalidateOtherSessions(@User() user: any): Promise<ApiResponseType> {
     try {
       const currentSessionId = user.sessionId;
       await this.sessionService.invalidateOtherSessions(
@@ -257,13 +216,10 @@ export class SessionController {
         'Other sessions invalidated successfully',
       );
     } catch (error) {
-      this.logger.error('Failed to invalidate other sessions:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to invalidate other sessions',
-          'SESSION_ERROR',
-          'INVALIDATE_OTHERS_FAILED',
-        ),
+      return this.handleServiceError(
+        'invalidateOtherSessions',
+        error,
+        'Failed to invalidate other sessions',
       );
     }
   }
@@ -292,7 +248,7 @@ export class SessionController {
     @User('id') userId: string,
     @User() user: any,
     @Req() req: Request,
-  ): Promise<ApiResponse> {
+  ): Promise<ApiResponseType> {
     try {
       const result = await this.sessionService.revokeSuspiciousSessions(
         userId,
@@ -316,13 +272,10 @@ export class SessionController {
         result,
       );
     } catch (error) {
-      this.logger.error('Failed to revoke suspicious sessions:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to revoke suspicious sessions',
-          'SESSION_ERROR',
-          'REVOKE_SUSPICIOUS_FAILED',
-        ),
+      return this.handleServiceError(
+        'revokeSuspiciousSessions',
+        error,
+        'Failed to revoke suspicious sessions',
       );
     }
   }
@@ -358,7 +311,7 @@ export class SessionController {
     @User() user: any,
     @Query('locations') locationsQuery: string,
     @Req() req: Request,
-  ): Promise<ApiResponse> {
+  ): Promise<ApiResponseType> {
     try {
       if (!locationsQuery) {
         throw new BadRequestException('Locations parameter is required');
@@ -391,16 +344,10 @@ export class SessionController {
         result,
       );
     } catch (error) {
-      this.logger.error(
-        'Failed to revoke location-based sessions:',
-        error.message,
-      );
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to revoke location-based sessions',
-          'SESSION_ERROR',
-          'REVOKE_LOCATION_FAILED',
-        ),
+      return this.handleServiceError(
+        'revokeSessionsByLocation',
+        error,
+        'Failed to revoke location-based sessions',
       );
     }
   }
@@ -442,7 +389,9 @@ export class SessionController {
       },
     },
   })
-  async getSecurityReport(@User('id') userId: string): Promise<ApiResponse> {
+  async getSecurityReport(
+    @User('id') userId: string,
+  ): Promise<ApiResponseType> {
     try {
       const report = await this.sessionService.getSecurityReport(userId);
       return this.createSuccessResponse(
@@ -450,13 +399,10 @@ export class SessionController {
         report,
       );
     } catch (error) {
-      this.logger.error('Failed to get security report:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to get security report',
-          'SESSION_ERROR',
-          'SECURITY_REPORT_FAILED',
-        ),
+      return this.handleServiceError(
+        'getSecurityReport',
+        error,
+        'Failed to get security report',
       );
     }
   }

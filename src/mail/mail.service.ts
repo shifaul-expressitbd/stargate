@@ -33,7 +33,7 @@ export class MailService {
     // Use the backend API endpoint for verification
     const verifyUrl =
       this.urlConfigService?.getEmailVerificationUrl(token) ||
-      `${this.configService.get('FRONTEND_URL', 'http://localhost:5555')}/api/auth/verify-email?token=${token}`;
+      `${this.configService.get('FRONTEND_URL', 'http://localhost:5555')}/verify-email?token=${token}`;
 
     const html = `
       <!DOCTYPE html>

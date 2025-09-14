@@ -6,7 +6,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Logger,
   NotFoundException,
   Post,
   Query,
@@ -20,11 +19,12 @@ import {
   ApiBody,
   ApiOperation,
   ApiQuery,
-  ApiResponse,
+  ApiResponse as ApiResponseDecorator,
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
+import { ApiResponse } from '../shared/interfaces/api-response.interface';
 
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
@@ -33,6 +33,7 @@ import { User } from '../../common/decorators/user.decorator';
 import { UrlConfigService } from '../../config/url.config';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { UsersService } from '../../users/users.service';
+import { BaseController } from '../base/base.controller';
 import { ChangePasswordDto } from '../dto/change-password.dto';
 import { LoginDto } from '../dto/login.dto';
 import { RegisterDto } from '../dto/register.dto';
@@ -42,19 +43,9 @@ import { AuthCoreService } from '../services/auth-core.service';
 import { SessionService } from '../services/session.service';
 import { TokenService } from '../services/token.service';
 
-interface ApiResponse<T = any> {
-  success: boolean;
-  message: string;
-  data?: T;
-  error?: string;
-  code?: string;
-}
-
 @ApiTags('Authentication')
 @Controller('auth')
-export class AuthController {
-  private readonly logger = new Logger(AuthController.name);
-
+export class AuthController extends BaseController {
   constructor(
     private readonly authCoreService: AuthCoreService,
     private readonly sessionService: SessionService,
@@ -63,27 +54,8 @@ export class AuthController {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly urlConfigService: UrlConfigService,
-  ) { }
-
-  private createSuccessResponse<T>(message: string, data?: T): ApiResponse<T> {
-    return {
-      success: true,
-      message,
-      data,
-    };
-  }
-
-  private createErrorResponse(
-    message: string,
-    error?: string,
-    code?: string,
-  ): ApiResponse {
-    return {
-      success: false,
-      message,
-      error,
-      code,
-    };
+  ) {
+    super();
   }
 
   // ========== REGISTER ==========
@@ -118,7 +90,7 @@ export class AuthController {
       },
     },
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 201,
     description: 'User registered successfully',
     schema: {
@@ -148,30 +120,18 @@ export class AuthController {
         result,
       );
     } catch (error) {
-      this.logger.error('Registration failed:', error.message);
-
       if (error instanceof BadRequestException) {
-        throw new BadRequestException(
-          this.createErrorResponse(
-            error.message,
-            'VALIDATION_ERROR',
-            'VALIDATION_FAILED',
-          ),
-        );
+        throw error; // Keep input validation errors as HttpExceptions
       }
 
       if (error instanceof ConflictException) {
-        throw new ConflictException(
-          this.createErrorResponse(error.message, 'CONFLICT', 'USER_EXISTS'),
-        );
+        throw error; // Keep business logic conflicts as HttpExceptions
       }
 
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Registration failed. Please try again.',
-          'SERVER_ERROR',
-          'REGISTRATION_FAILED',
-        ),
+      return this.handleServiceError(
+        'register',
+        error,
+        'Registration failed. Please try again.',
       );
     }
   }
@@ -205,7 +165,7 @@ export class AuthController {
       },
     },
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Login successful',
     schema: {
@@ -239,7 +199,9 @@ export class AuthController {
         loginDto.password,
       );
 
-      this.logger.log(`🔐 Login attempt for user: ${loginDto.email}, IP: ${req.ip}`);
+      this.logger.log(
+        `🔐 Login attempt for user: ${loginDto.email}, IP: ${req.ip}`,
+      );
       const result = await this.authCoreService.login(
         user,
         loginDto.rememberMe,
@@ -248,7 +210,9 @@ export class AuthController {
       );
 
       if ('requiresTwoFactor' in result) {
-        this.logger.log(`🔑 2FA required for user: ${loginDto.email}, tempToken generated`);
+        this.logger.log(
+          `🔑 2FA required for user: ${loginDto.email}, tempToken generated`,
+        );
         return this.createSuccessResponse(
           'Two-factor authentication required',
           result,
@@ -258,24 +222,14 @@ export class AuthController {
       this.logger.log(`✅ Login successful for user: ${loginDto.email}`);
       return this.createSuccessResponse('Login successful', result);
     } catch (error) {
-      this.logger.error('Login failed:', error.message);
-
       if (error instanceof UnauthorizedException) {
-        throw new UnauthorizedException(
-          this.createErrorResponse(
-            error.message,
-            'UNAUTHORIZED',
-            'INVALID_CREDENTIALS',
-          ),
-        );
+        throw error; // Keep authentication errors as HttpExceptions
       }
 
-      throw new UnauthorizedException(
-        this.createErrorResponse(
-          'Login failed. Please try again.',
-          'AUTH_ERROR',
-          'LOGIN_FAILED',
-        ),
+      return this.handleServiceError(
+        'login',
+        error,
+        'Login failed. Please try again.',
       );
     }
   }
@@ -288,7 +242,7 @@ export class AuthController {
   @ApiOperation({
     summary: 'Refresh access token using a valid refresh token',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Token refreshed successfully',
     schema: {
@@ -400,16 +354,12 @@ export class AuthController {
         responseData,
       );
     } catch (error) {
-      if (error instanceof UnauthorizedException) throw error;
+      if (error instanceof UnauthorizedException) throw error; // Keep input validation errors
 
-      this.logger.error('Token refresh failed:', error.message);
-
-      throw new UnauthorizedException(
-        this.createErrorResponse(
-          'Invalid or expired refresh token',
-          'UNAUTHORIZED',
-          'INVALID_REFRESH_TOKEN',
-        ),
+      return this.handleServiceError(
+        'refresh',
+        error,
+        'Invalid or expired refresh token',
       );
     }
   }
@@ -426,7 +376,7 @@ export class AuthController {
     required: true,
     type: String,
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Email verification successful',
     schema: {
@@ -540,34 +490,18 @@ export class AuthController {
       await this.authCoreService.resendVerificationEmail(dto.email);
       return this.createSuccessResponse('Verification email sent successfully');
     } catch (error) {
-      this.logger.error('Resend verification email failed:', error.message);
-
       if (error instanceof NotFoundException) {
-        throw new NotFoundException(
-          this.createErrorResponse(
-            error.message,
-            'NOT_FOUND',
-            'USER_NOT_FOUND',
-          ),
-        );
+        throw error; // Keep not found errors as HttpExceptions
       }
 
       if (error instanceof BadRequestException) {
-        throw new BadRequestException(
-          this.createErrorResponse(
-            error.message,
-            'BAD_REQUEST',
-            'EMAIL_ALREADY_VERIFIED',
-          ),
-        );
+        throw error; // Keep input validation errors as HttpExceptions
       }
 
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to send verification email',
-          'SERVER_ERROR',
-          'RESEND_FAILED',
-        ),
+      return this.handleServiceError(
+        'resendVerificationEmail',
+        error,
+        'Failed to send verification email',
       );
     }
   }
@@ -578,7 +512,7 @@ export class AuthController {
   @ApiOperation({
     summary: 'Logout current user and invalidate current session',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Logout successful',
     schema: {
@@ -606,14 +540,7 @@ export class AuthController {
       );
       return this.createSuccessResponse('Logged out successfully');
     } catch (error) {
-      this.logger.error('Logout failed:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to logout',
-          'LOGOUT_ERROR',
-          'LOGOUT_FAILED',
-        ),
-      );
+      return this.handleServiceError('logout', error, 'Failed to logout');
     }
   }
 
@@ -654,13 +581,10 @@ export class AuthController {
       );
       return this.createSuccessResponse('Password reset successfully');
     } catch (error) {
-      this.logger.error('Password reset failed:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          error.message,
-          'PASSWORD_RESET_ERROR',
-          'RESET_FAILED',
-        ),
+      return this.handleServiceError(
+        'resetPassword',
+        error,
+        'Password reset failed',
       );
     }
   }
@@ -683,13 +607,10 @@ export class AuthController {
       );
       return this.createSuccessResponse('Password changed successfully');
     } catch (error) {
-      this.logger.error('Password change failed:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          error.message,
-          'PASSWORD_CHANGE_ERROR',
-          'CHANGE_FAILED',
-        ),
+      return this.handleServiceError(
+        'changePassword',
+        error,
+        'Password change failed',
       );
     }
   }

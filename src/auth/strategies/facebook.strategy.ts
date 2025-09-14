@@ -3,7 +3,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Profile, Strategy } from 'passport-facebook';
-import { AuthService } from '../auth.service';
+import { UrlConfigService } from '../../config/url.config';
+import { OAuthService } from '../services/oauth.service';
 
 @Injectable()
 export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
@@ -11,17 +12,12 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly authService: AuthService,
+    private readonly oauthService: OAuthService,
+    private readonly urlConfigService: UrlConfigService,
   ) {
     const appId = configService.get<string>('FACEBOOK_APP_ID');
     const appSecret = configService.get<string>('FACEBOOK_APP_SECRET');
-
-    // Build callback URL
-    const baseUrl =
-      configService.get<string>('NODE_ENV') === 'production'
-        ? 'https://your-domain.com'
-        : 'http://localhost:5555';
-    const callbackURL = `${baseUrl}/api/auth/facebook/callback`;
+    const callbackURL = urlConfigService.getOAuthCallbackUrl('facebook');
 
     // Validate required configuration
     if (!appId || !appSecret) {
@@ -50,7 +46,6 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
     accessToken: string,
     refreshToken: string,
     profile: Profile,
-    done: (error: any, user?: any) => void,
   ): Promise<any> {
     try {
       const { emails, name, photos } = profile;
@@ -76,12 +71,10 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
       };
 
       this.logger.log(`Facebook OAuth validation for user: ${user.email}`);
-
-      const validatedUser = await this.authService.validateOAuthUser(user);
-      done(null, validatedUser);
+      return this.oauthService.validateOAuthUser(user);
     } catch (error) {
       this.logger.error('Facebook OAuth validation failed:', error.message);
-      done(error, null);
+      throw error;
     }
   }
 }

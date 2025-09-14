@@ -4,7 +4,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Logger,
   NotFoundException,
   Post,
   Req,
@@ -13,11 +12,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AuthGuard } from '@nestjs/passport';
 import {
   ApiBearerAuth,
   ApiBody,
   ApiOperation,
-  ApiResponse,
+  ApiResponse as ApiResponseDecorator,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
@@ -25,24 +25,16 @@ import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { User } from '../../common/decorators/user.decorator';
 import { UrlConfigService } from '../../config/url.config';
+import { BaseController } from '../base/base.controller';
 import { AuthCoreService } from '../services/auth-core.service';
 import { OAuthService } from '../services/oauth.service';
 import { SessionService } from '../services/session.service';
 import { TokenService } from '../services/token.service';
-
-interface ApiResponse<T = any> {
-  success: boolean;
-  message: string;
-  data?: T;
-  error?: string;
-  code?: string;
-}
+import { ApiResponse } from '../shared/interfaces/api-response.interface';
 
 @ApiTags('OAuth Authentication')
 @Controller('auth')
-export class OAuthController {
-  private readonly logger = new Logger(OAuthController.name);
-
+export class OAuthController extends BaseController {
   constructor(
     private readonly authCoreService: AuthCoreService,
     private readonly oauthService: OAuthService,
@@ -50,27 +42,8 @@ export class OAuthController {
     private readonly tokenService: TokenService,
     private readonly configService: ConfigService,
     private readonly urlConfigService: UrlConfigService,
-  ) {}
-
-  private createSuccessResponse<T>(message: string, data?: T): ApiResponse<T> {
-    return {
-      success: true,
-      message,
-      data,
-    };
-  }
-
-  private createErrorResponse(
-    message: string,
-    error?: string,
-    code?: string,
-  ): ApiResponse {
-    return {
-      success: false,
-      message,
-      error,
-      code,
-    };
+  ) {
+    super();
   }
 
   // ========== GOOGLE OAUTH ==========
@@ -79,11 +52,11 @@ export class OAuthController {
   @ApiOperation({
     summary: 'Initiate Google OAuth login',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 302,
     description: 'Redirect to Google OAuth',
   })
-  @UseGuards() // Google strategy guard will be applied at strategy level
+  @UseGuards(AuthGuard('google'))
   async googleAuth() {
     // Passport handles redirect automatically
   }
@@ -93,11 +66,11 @@ export class OAuthController {
   @ApiOperation({
     summary: 'Google OAuth callback handler',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 302,
     description: 'Redirect to frontend with tokens',
   })
-  @UseGuards() // Google strategy guard will be applied at strategy level
+  @UseGuards(AuthGuard('google'))
   async googleAuthRedirect(@Req() req: Request, @Res() res: Response) {
     try {
       const result = await this.authCoreService.googleLogin(req.user);
@@ -126,7 +99,7 @@ export class OAuthController {
   @ApiOperation({
     summary: 'Get Google OAuth configuration',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Google OAuth configuration',
     schema: {
@@ -141,21 +114,18 @@ export class OAuthController {
       },
     },
   })
-  getGoogleConfig(): ApiResponse {
+  async getGoogleConfig(): Promise<ApiResponse> {
     try {
-      const config = this.oauthService.getOAuthConfig('google');
+      const config = await this.oauthService.getOAuthConfig('google');
       return this.createSuccessResponse(
         'Google OAuth configuration retrieved',
         config,
       );
     } catch (error) {
-      this.logger.error('Failed to get Google OAuth config:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to get Google OAuth configuration',
-          'CONFIG_ERROR',
-          'GOOGLE_CONFIG_FAILED',
-        ),
+      return this.handleServiceError(
+        'getGoogleConfig',
+        error,
+        'Failed to get Google OAuth configuration',
       );
     }
   }
@@ -166,11 +136,11 @@ export class OAuthController {
   @ApiOperation({
     summary: 'Initiate Google GTM OAuth login',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 302,
     description: 'Redirect to Google GTM OAuth',
   })
-  @UseGuards() // Google GTM strategy guard will be applied at strategy level
+  @UseGuards(AuthGuard('google-gtm'))
   async googleGtmAuth() {
     // Passport handles redirect automatically
   }
@@ -180,7 +150,7 @@ export class OAuthController {
   @ApiOperation({
     summary: 'Google GTM OAuth callback handler',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 302,
     description: 'Redirect to frontend with GTM permission token',
   })
@@ -247,7 +217,7 @@ export class OAuthController {
   @ApiOperation({
     summary: 'Get Google GTM OAuth configuration',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Google GTM OAuth configuration',
     schema: {
@@ -269,24 +239,18 @@ export class OAuthController {
       },
     },
   })
-  getGoogleGtmConfig(): ApiResponse {
+  async getGoogleGtmConfig(): Promise<ApiResponse> {
     try {
-      const config = this.oauthService.getOAuthConfig('google-gtm');
+      const config = await this.oauthService.getOAuthConfig('google-gtm');
       return this.createSuccessResponse(
         'Google GTM OAuth configuration retrieved',
         config,
       );
     } catch (error) {
-      this.logger.error(
-        'Failed to get Google GTM OAuth config:',
-        error.message,
-      );
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to get Google GTM OAuth configuration',
-          'CONFIG_ERROR',
-          'GOOGLE_GTM_CONFIG_FAILED',
-        ),
+      return this.handleServiceError(
+        'getGoogleGtmConfig',
+        error,
+        'Failed to get Google GTM OAuth configuration',
       );
     }
   }
@@ -297,11 +261,11 @@ export class OAuthController {
   @ApiOperation({
     summary: 'Initiate Facebook OAuth login',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 302,
     description: 'Redirect to Facebook OAuth',
   })
-  @UseGuards() // Facebook strategy guard will be applied at strategy level
+  @UseGuards(AuthGuard('facebook'))
   async facebookAuth() {
     // Passport handles redirect automatically
   }
@@ -311,11 +275,11 @@ export class OAuthController {
   @ApiOperation({
     summary: 'Facebook OAuth callback handler',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 302,
     description: 'Redirect to frontend with tokens',
   })
-  @UseGuards() // Facebook strategy guard will be applied at strategy level
+  @UseGuards(AuthGuard('facebook'))
   async facebookAuthRedirect(@Req() req: Request, @Res() res: Response) {
     try {
       const result = await this.authCoreService.facebookLogin(req.user);
@@ -344,7 +308,7 @@ export class OAuthController {
   @ApiOperation({
     summary: 'Get Facebook OAuth configuration',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Facebook OAuth configuration',
     schema: {
@@ -359,21 +323,18 @@ export class OAuthController {
       },
     },
   })
-  getFacebookConfig(): ApiResponse {
+  async getFacebookConfig(): Promise<ApiResponse> {
     try {
-      const config = this.oauthService.getOAuthConfig('facebook');
+      const config = await this.oauthService.getOAuthConfig('facebook');
       return this.createSuccessResponse(
         'Facebook OAuth configuration retrieved',
         config,
       );
     } catch (error) {
-      this.logger.error('Failed to get Facebook OAuth config:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to get Facebook OAuth configuration',
-          'CONFIG_ERROR',
-          'FACEBOOK_CONFIG_FAILED',
-        ),
+      return this.handleServiceError(
+        'getFacebookConfig',
+        error,
+        'Failed to get Facebook OAuth configuration',
       );
     }
   }
@@ -384,11 +345,11 @@ export class OAuthController {
   @ApiOperation({
     summary: 'Initiate GitHub OAuth login',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 302,
     description: 'Redirect to GitHub OAuth',
   })
-  @UseGuards() // GitHub strategy guard will be applied at strategy level
+  @UseGuards(AuthGuard('github'))
   async githubAuth() {
     // Passport handles redirect automatically
   }
@@ -398,11 +359,11 @@ export class OAuthController {
   @ApiOperation({
     summary: 'GitHub OAuth callback handler',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 302,
     description: 'Redirect to frontend with tokens',
   })
-  @UseGuards() // GitHub strategy guard will be applied at strategy level
+  @UseGuards(AuthGuard('github'))
   async githubAuthRedirect(@Req() req: Request, @Res() res: Response) {
     try {
       const result = await this.authCoreService.githubLogin(req.user);
@@ -431,7 +392,7 @@ export class OAuthController {
   @ApiOperation({
     summary: 'Get GitHub OAuth configuration',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'GitHub OAuth configuration',
     schema: {
@@ -446,21 +407,18 @@ export class OAuthController {
       },
     },
   })
-  getGithubConfig(): ApiResponse {
+  async getGithubConfig(): Promise<ApiResponse> {
     try {
-      const config = this.oauthService.getOAuthConfig('github');
+      const config = await this.oauthService.getOAuthConfig('github');
       return this.createSuccessResponse(
         'GitHub OAuth configuration retrieved',
         config,
       );
     } catch (error) {
-      this.logger.error('Failed to get GitHub OAuth config:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to get GitHub OAuth configuration',
-          'CONFIG_ERROR',
-          'GITHUB_CONFIG_FAILED',
-        ),
+      return this.handleServiceError(
+        'getGithubConfig',
+        error,
+        'Failed to get GitHub OAuth configuration',
       );
     }
   }
@@ -472,7 +430,7 @@ export class OAuthController {
   @ApiOperation({
     summary: 'Get all linked authentication providers for current user',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Providers retrieved successfully',
     schema: {
@@ -500,13 +458,10 @@ export class OAuthController {
         providers,
       );
     } catch (error) {
-      this.logger.error('Failed to get user providers:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to get providers',
-          'PROVIDER_ERROR',
-          'GET_PROVIDERS_FAILED',
-        ),
+      return this.handleServiceError(
+        'getUserProviders',
+        error,
+        'Failed to get providers',
       );
     }
   }
@@ -542,34 +497,18 @@ export class OAuthController {
 
       return this.createSuccessResponse('Provider unlinked successfully');
     } catch (error) {
-      this.logger.error('Provider unlinking failed:', error.message);
-
       if (error instanceof NotFoundException) {
-        throw new NotFoundException(
-          this.createErrorResponse(
-            error.message,
-            'PROVIDER_ERROR',
-            'PROVIDER_NOT_FOUND',
-          ),
-        );
+        throw error; // Keep not found errors as HttpExceptions
       }
 
       if (error instanceof BadRequestException) {
-        throw new BadRequestException(
-          this.createErrorResponse(
-            error.message,
-            'PROVIDER_ERROR',
-            'UNLINK_FAILED',
-          ),
-        );
+        throw error; // Keep input validation errors as HttpExceptions
       }
 
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to unlink provider',
-          'PROVIDER_ERROR',
-          'UNLINK_PROVIDER_FAILED',
-        ),
+      return this.handleServiceError(
+        'unlinkProvider',
+        error,
+        'Failed to unlink provider',
       );
     }
   }
@@ -605,13 +544,10 @@ export class OAuthController {
 
       return this.createSuccessResponse('Primary provider set successfully');
     } catch (error) {
-      this.logger.error('Setting primary provider failed:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          error.message,
-          'PROVIDER_ERROR',
-          'SET_PRIMARY_FAILED',
-        ),
+      return this.handleServiceError(
+        'setPrimaryProvider',
+        error,
+        'Failed to set primary provider',
       );
     }
   }
@@ -625,7 +561,7 @@ export class OAuthController {
     description:
       'Creates a short-lived permission token for accessing Google Tag Manager APIs. This token should be used in the Authorization header when calling GTM endpoints.',
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Permission token generated successfully',
     schema: {
@@ -651,16 +587,10 @@ export class OAuthController {
         tokenData,
       );
     } catch (error) {
-      this.logger.error(
-        'GTM permission token generation failed:',
-        error.message,
-      );
-      throw new BadRequestException(
-        this.createErrorResponse(
-          error.message,
-          'AUTH_ERROR',
-          'PERMISSION_TOKEN_FAILED',
-        ),
+      return this.handleServiceError(
+        'getGTMPermissionToken',
+        error,
+        'Failed to generate GTM permission token',
       );
     }
   }

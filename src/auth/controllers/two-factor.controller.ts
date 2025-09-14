@@ -1,11 +1,9 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
   HttpCode,
   HttpStatus,
-  Logger,
   Post,
   Req,
   UnauthorizedException,
@@ -15,7 +13,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiOperation,
-  ApiResponse,
+  ApiResponse as ApiResponseDecorator,
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -24,6 +22,7 @@ import type { Request } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { User } from '../../common/decorators/user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { BaseController } from '../base/base.controller';
 import {
   LoginWithBackupCodeDto,
   RegenerateBackupCodesDto,
@@ -37,52 +36,24 @@ import {
 import { AuthCoreService } from '../services/auth-core.service';
 import { SessionService } from '../services/session.service';
 import { TwoFactorService } from '../services/two-factor.service';
-
-interface ApiResponse<T = any> {
-  success: boolean;
-  message: string;
-  data?: T;
-  error?: string;
-  code?: string;
-}
+import { ApiResponse } from '../shared/interfaces/api-response.interface';
 
 @ApiTags('Two-Factor Authentication')
 @Controller('auth/2fa')
-export class TwoFactorController {
-  private readonly logger = new Logger(TwoFactorController.name);
-
+export class TwoFactorController extends BaseController {
   constructor(
     private readonly twoFactorService: TwoFactorService,
     private readonly authCoreService: AuthCoreService,
     private readonly sessionService: SessionService,
-  ) { }
-
-  private createSuccessResponse<T>(message: string, data?: T): ApiResponse<T> {
-    return {
-      success: true,
-      message,
-      data,
-    };
-  }
-
-  private createErrorResponse(
-    message: string,
-    error?: string,
-    code?: string,
-  ): ApiResponse {
-    return {
-      success: false,
-      message,
-      error,
-      code,
-    };
+  ) {
+    super();
   }
 
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @Get('generate')
   @ApiOperation({ summary: 'Generate 2FA secret for current user' })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: '2FA secret generated',
     schema: {
@@ -104,18 +75,15 @@ export class TwoFactorController {
     try {
       const result =
         await this.twoFactorService.generateTwoFactorSecret(userId);
-      return this.createSuccessResponse(
+      return super.createSuccessResponse(
         '2FA secret generated successfully',
         result,
       );
     } catch (error) {
-      this.logger.error('2FA secret generation failed:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to generate 2FA secret',
-          '2FA_ERROR',
-          'GENERATION_FAILED',
-        ),
+      return this.handleServiceError(
+        'generateTwoFactorSecret',
+        error,
+        'Failed to generate 2FA secret',
       );
     }
   }
@@ -137,7 +105,7 @@ export class TwoFactorController {
       },
     },
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Code is valid',
     schema: {
@@ -160,11 +128,16 @@ export class TwoFactorController {
       if (!isValid) {
         throw new UnauthorizedException('Invalid 2FA code');
       }
-      return this.createSuccessResponse('2FA code is valid', { valid: true });
+      return super.createSuccessResponse('2FA code is valid', { valid: true });
     } catch (error) {
-      this.logger.error('2FA verification failed:', error.message);
-      throw new UnauthorizedException(
-        this.createErrorResponse(error.message, '2FA_ERROR', 'INVALID_CODE'),
+      if (error instanceof UnauthorizedException) {
+        throw error; // Keep input validation errors as HttpExceptions
+      }
+
+      return this.handleServiceError(
+        'verifyTwoFactor',
+        error,
+        '2FA verification failed',
       );
     }
   }
@@ -187,7 +160,7 @@ export class TwoFactorController {
       },
     },
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: '2FA enabled successfully',
     schema: {
@@ -218,14 +191,15 @@ export class TwoFactorController {
         req.get('User-Agent'),
       );
 
-      return this.createSuccessResponse(
+      return super.createSuccessResponse(
         '2FA enabled successfully',
         result || undefined,
       );
     } catch (error) {
-      this.logger.error('2FA enable failed:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(error.message, '2FA_ERROR', 'ENABLE_FAILED'),
+      return this.handleServiceError(
+        'enableTwoFactor',
+        error,
+        '2FA enable failed',
       );
     }
   }
@@ -248,7 +222,7 @@ export class TwoFactorController {
       },
     },
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: '2FA disabled successfully',
     schema: {
@@ -279,11 +253,12 @@ export class TwoFactorController {
         req.get('User-Agent'),
       );
 
-      return this.createSuccessResponse('2FA disabled successfully', result);
+      return super.createSuccessResponse('2FA disabled successfully', result);
     } catch (error) {
-      this.logger.error('2FA disable failed:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(error.message, '2FA_ERROR', 'DISABLE_FAILED'),
+      return this.handleServiceError(
+        'disableTwoFactor',
+        error,
+        '2FA disable failed',
       );
     }
   }
@@ -306,7 +281,7 @@ export class TwoFactorController {
       },
     },
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Backup codes regenerated successfully',
     schema: {
@@ -339,29 +314,19 @@ export class TwoFactorController {
         req.get('User-Agent'),
       );
 
-      return this.createSuccessResponse(
+      return super.createSuccessResponse(
         'Backup codes regenerated successfully',
         result,
       );
     } catch (error) {
-      this.logger.error('Backup codes regeneration failed:', error.message);
-
       if (error instanceof UnauthorizedException) {
-        throw new UnauthorizedException(
-          this.createErrorResponse(
-            error.message,
-            'UNAUTHORIZED',
-            'INVALID_VERIFICATION_CODE',
-          ),
-        );
+        throw error; // Keep invalid verification code errors as HttpExceptions
       }
 
-      throw new BadRequestException(
-        this.createErrorResponse(
-          error.message,
-          'REGENERATION_ERROR',
-          'BACKUP_CODE_REGENERATION_FAILED',
-        ),
+      return this.handleServiceError(
+        'regenerateBackupCodes',
+        error,
+        'Backup codes regeneration failed',
       );
     }
   }
@@ -370,7 +335,7 @@ export class TwoFactorController {
   @ApiBearerAuth('JWT-auth')
   @Get('status')
   @ApiOperation({ summary: 'Check 2FA status for current user' })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: '2FA status retrieved',
     schema: {
@@ -387,18 +352,15 @@ export class TwoFactorController {
   async getTwoFactorStatus(@User('id') userId: string): Promise<ApiResponse> {
     try {
       const result = await this.twoFactorService.getTwoFactorStatus(userId);
-      return this.createSuccessResponse(
+      return super.createSuccessResponse(
         '2FA status retrieved successfully',
         result,
       );
     } catch (error) {
-      this.logger.error('2FA status check failed:', error.message);
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Failed to get 2FA status',
-          '2FA_ERROR',
-          'STATUS_CHECK_FAILED',
-        ),
+      return this.handleServiceError(
+        'getTwoFactorStatus',
+        error,
+        'Failed to get 2FA status',
       );
     }
   }
@@ -421,7 +383,7 @@ export class TwoFactorController {
       },
     },
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Backup codes generated successfully',
     schema: {
@@ -454,29 +416,19 @@ export class TwoFactorController {
         req.get('User-Agent'),
       );
 
-      return this.createSuccessResponse(
+      return super.createSuccessResponse(
         'Backup codes generated successfully',
         result,
       );
     } catch (error) {
-      this.logger.error('Backup codes generation failed:', error.message);
-
       if (error instanceof UnauthorizedException) {
-        throw new UnauthorizedException(
-          this.createErrorResponse(
-            error.message,
-            'UNAUTHORIZED',
-            'INVALID_VERIFICATION_CODE',
-          ),
-        );
+        throw error; // Keep invalid verification code errors as HttpExceptions
       }
 
-      throw new BadRequestException(
-        this.createErrorResponse(
-          error.message,
-          'GENERATION_ERROR',
-          'BACKUP_CODE_GENERATION_FAILED',
-        ),
+      return this.handleServiceError(
+        'generateBackupCodes',
+        error,
+        'Backup codes generation failed',
       );
     }
   }
@@ -511,7 +463,7 @@ export class TwoFactorController {
       },
     },
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Login successful with 2FA',
     schema: {
@@ -539,9 +491,15 @@ export class TwoFactorController {
     @Req() req: Request,
   ): Promise<ApiResponse> {
     try {
-      this.logger.log(`🔐 TOTP login attempt - IP: ${req.ip}, User-Agent: ${req.get('User-Agent')}`);
-      this.logger.debug(`📝 Request payload: tempToken present: ${!!dto.tempToken}, totpCode length: ${dto.totpCode?.length}, rememberMe: ${dto.rememberMe}`);
-      this.logger.debug(`🔍 Request headers: Authorization: ${req.headers.authorization ? 'Present' : 'Missing'}, Content-Type: ${req.headers['content-type']}`);
+      this.logger.log(
+        `🔐 TOTP login attempt - IP: ${req.ip}, User-Agent: ${req.get('User-Agent')}`,
+      );
+      this.logger.debug(
+        `📝 Request payload: tempToken present: ${!!dto.tempToken}, totpCode length: ${dto.totpCode?.length}, rememberMe: ${dto.rememberMe}`,
+      );
+      this.logger.debug(
+        `🔍 Request headers: Authorization: ${req.headers.authorization ? 'Present' : 'Missing'}, Content-Type: ${req.headers['content-type']}`,
+      );
       this.logger.debug(`🔍 Request method: ${req.method}, URL: ${req.url}`);
 
       const result = await this.authCoreService.loginWithTwoFactor(
@@ -550,19 +508,19 @@ export class TwoFactorController {
         req.get('User-Agent'),
       );
       this.logger.log(`✅ TOTP login successful`);
-      return this.createSuccessResponse(
+      return super.createSuccessResponse(
         'Two-factor authentication successful',
         result,
       );
     } catch (error) {
-      this.logger.error(`❌ TOTP login failed: ${error.message}`);
-      this.logger.debug(`🔍 Error details:`, {
-        statusCode: error.status,
-        name: error.name,
-        stack: error.stack
-      });
-      throw new UnauthorizedException(
-        this.createErrorResponse(error.message, '2FA_ERROR', 'LOGIN_FAILED'),
+      if (error instanceof UnauthorizedException) {
+        throw error; // Keep authentication errors as HttpExceptions
+      }
+
+      return this.handleServiceError(
+        'loginWithTwoFactor',
+        error,
+        'TOTP login failed',
       );
     }
   }
@@ -598,7 +556,7 @@ export class TwoFactorController {
       },
     },
   })
-  @ApiResponse({
+  @ApiResponseDecorator({
     status: 200,
     description: 'Login successful with backup code',
     schema: {
@@ -636,7 +594,7 @@ export class TwoFactorController {
         req.get('User-Agent'),
       );
 
-      return this.createSuccessResponse('Login successful with backup code', {
+      return super.createSuccessResponse('Login successful with backup code', {
         user: result.user,
         accessToken: result.accessToken,
         refreshToken: result.refreshToken,
@@ -644,24 +602,14 @@ export class TwoFactorController {
         message: 'Login successful with backup code',
       });
     } catch (error) {
-      this.logger.error('Backup code login failed:', error.message);
-
       if (error instanceof UnauthorizedException) {
-        throw new UnauthorizedException(
-          this.createErrorResponse(
-            error.message,
-            'UNAUTHORIZED',
-            'INVALID_BACKUP_CODE',
-          ),
-        );
+        throw error; // Keep invalid backup code errors as HttpExceptions
       }
 
-      throw new BadRequestException(
-        this.createErrorResponse(
-          'Backup code login failed',
-          'AUTH_ERROR',
-          'BACKUP_CODE_LOGIN_FAILED',
-        ),
+      return this.handleServiceError(
+        'loginWithBackupCode',
+        error,
+        'Backup code login failed',
       );
     }
   }
