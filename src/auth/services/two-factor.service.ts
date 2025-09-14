@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -252,7 +253,7 @@ export class TwoFactorService {
 
       throw new UnauthorizedException(
         `Invalid verification code. Server expected: ${currentCode} (${timeInfo}). ` +
-        'Please check your device time synchronization.',
+          'Please check your device time synchronization.',
       );
     }
 
@@ -389,6 +390,25 @@ export class TwoFactorService {
     return {
       isEnabled: user.isTwoFactorEnabled,
       hasSecret: !!user.twoFactorSecret,
+    };
+  }
+
+  async getBackupCodesStatus(
+    userId: string,
+  ): Promise<{ hasBackupCodes: boolean; remainingCount: number }> {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new BadRequestException('User not found');
+
+    if (!user.isTwoFactorEnabled) {
+      throw new ForbiddenException(
+        'Two-factor authentication must be enabled to access backup codes',
+      );
+    }
+
+    const remainingCount = user.backupCodes?.length || 0;
+    return {
+      hasBackupCodes: remainingCount > 0,
+      remainingCount,
     };
   }
 

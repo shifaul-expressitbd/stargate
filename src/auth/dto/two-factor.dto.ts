@@ -65,14 +65,3 @@ export class LoginWithTwoFactorDto {
   @IsOptional()
   rememberMe?: boolean;
 }
-
-export class GenerateBackupCodesDto {
-  @ApiProperty({
-    example: '123456',
-    description: 'TOTP code from authenticator app to verify identity',
-  })
-  @IsString()
-  @IsNotEmpty()
-  @Matches(/^\d{6}$/, { message: 'Code must be 6 digits' })
-  totpCode: string;
-}

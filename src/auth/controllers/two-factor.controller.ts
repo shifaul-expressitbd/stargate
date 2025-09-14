@@ -24,12 +24,12 @@ import { User } from '../../common/decorators/user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { BaseController } from '../base/base.controller';
 import {
+  GenerateBackupCodesDto,
   LoginWithBackupCodeDto,
   RegenerateBackupCodesDto,
 } from '../dto/backup-code.dto';
 import {
   EnableTwoFactorDto,
-  GenerateBackupCodesDto,
   LoginWithTwoFactorDto,
   VerifyTwoFactorDto,
 } from '../dto/two-factor.dto';
@@ -265,6 +265,108 @@ export class TwoFactorController extends BaseController {
 
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
+  @Get('backup-codes/status')
+  @ApiOperation({ summary: 'Get backup codes status for current user' })
+  @ApiResponseDecorator({
+    status: 200,
+    description: 'Backup codes status retrieved successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Backup codes status retrieved successfully',
+        data: {
+          hasBackupCodes: true,
+          remainingCount: 8,
+        },
+      },
+    },
+  })
+  async getBackupCodesStatus(@User('id') userId: string): Promise<ApiResponse> {
+    try {
+      const result = await this.twoFactorService.getBackupCodesStatus(userId);
+      return super.createSuccessResponse(
+        'Backup codes status retrieved successfully',
+        result,
+      );
+    } catch (error) {
+      return this.handleServiceError(
+        'getBackupCodesStatus',
+        error,
+        'Failed to get backup codes status',
+      );
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Throttle({ default: { limit: 3, ttl: 300 } })
+  @Post('generate-backup-codes')
+  @ApiOperation({ summary: 'Generate new backup codes for 2FA' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['totpCode'],
+      properties: {
+        totpCode: {
+          type: 'string',
+          example: '123456',
+          description: '6-digit TOTP code to verify generation',
+        },
+      },
+    },
+  })
+  @ApiResponseDecorator({
+    status: 200,
+    description: 'Backup codes generated successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Backup codes generated successfully',
+        data: {
+          backupCodes: ['ABCD1234', 'EFGH5678', 'IJKL9012'],
+        },
+      },
+    },
+  })
+  async generateBackupCodes(
+    @User('id') userId: string,
+    @Body() dto: GenerateBackupCodesDto,
+    @Req() req: Request,
+  ): Promise<ApiResponse> {
+    try {
+      const result = await this.twoFactorService.generateBackupCodes(
+        userId,
+        dto,
+      );
+
+      // Log the backup code generation event
+      await this.sessionService.logAccessEvent(
+        userId,
+        'BACKUP_CODE_USED',
+        undefined,
+        req.ip,
+        req.get('User-Agent'),
+      );
+
+      return super.createSuccessResponse(
+        'Backup codes generated successfully',
+        result,
+      );
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error; // Keep invalid verification code errors as HttpExceptions
+      }
+
+      return this.handleServiceError(
+        'generateBackupCodes',
+        error,
+        'Backup codes generation failed',
+      );
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @Throttle({ default: { limit: 3, ttl: 300 } })
   @Post('regenerate-backup-codes')
   @ApiOperation({ summary: 'Regenerate new backup codes for 2FA' })
@@ -361,74 +463,6 @@ export class TwoFactorController extends BaseController {
         'getTwoFactorStatus',
         error,
         'Failed to get 2FA status',
-      );
-    }
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('JWT-auth')
-  @Throttle({ default: { limit: 3, ttl: 300 } })
-  @Post('generate-backup-codes')
-  @ApiOperation({ summary: 'Generate new backup codes for 2FA' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['totpCode'],
-      properties: {
-        totpCode: {
-          type: 'string',
-          example: '123456',
-          description: '6-digit TOTP code to verify generation',
-        },
-      },
-    },
-  })
-  @ApiResponseDecorator({
-    status: 200,
-    description: 'Backup codes generated successfully',
-    schema: {
-      example: {
-        success: true,
-        message: 'Backup codes generated successfully',
-        data: {
-          backupCodes: ['ABCD1234', 'EFGH5678', 'IJKL9012'],
-        },
-      },
-    },
-  })
-  async generateBackupCodes(
-    @User('id') userId: string,
-    @Body() dto: GenerateBackupCodesDto,
-    @Req() req: Request,
-  ): Promise<ApiResponse> {
-    try {
-      const result = await this.twoFactorService.generateBackupCodes(
-        userId,
-        dto,
-      );
-
-      // Log the backup code generation event
-      await this.sessionService.logAccessEvent(
-        userId,
-        'BACKUP_CODE_USED',
-        undefined,
-        req.ip,
-        req.get('User-Agent'),
-      );
-
-      return super.createSuccessResponse(
-        'Backup codes generated successfully',
-        result,
-      );
-    } catch (error) {
-      if (error instanceof UnauthorizedException) {
-        throw error; // Keep invalid verification code errors as HttpExceptions
-      }
-
-      return this.handleServiceError(
-        'generateBackupCodes',
-        error,
-        'Backup codes generation failed',
       );
     }
   }

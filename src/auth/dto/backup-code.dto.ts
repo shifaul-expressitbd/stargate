@@ -8,6 +8,17 @@ import {
   Matches,
 } from 'class-validator';
 
+export class GenerateBackupCodesDto {
+  @ApiProperty({
+    example: '123456',
+    description: 'TOTP code from authenticator app to verify identity',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\d{6}$/, { message: 'Code must be 6 digits' })
+  totpCode: string;
+}
+
 export class LoginWithBackupCodeDto {
   @ApiProperty({
     example: 'ABCD1234',
@@ -45,4 +56,21 @@ export class RegenerateBackupCodesDto {
     message: 'Verification code must be exactly 6 digits',
   })
   totpCode: string;
+}
+
+export class BackupCodesStatusDto {
+  @ApiProperty({
+    example: true,
+    description:
+      'Whether backup codes have been generated and remain available',
+  })
+  hasBackupCodes: boolean;
+
+  @ApiProperty({
+    example: 8,
+    description: 'Number of remaining unused backup codes',
+    minimum: 0,
+    maximum: 10,
+  })
+  remainingCount: number;
 }
