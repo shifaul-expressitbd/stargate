@@ -77,7 +77,7 @@ export class AuthCoreService {
     private readonly mailService: MailService,
     private readonly prisma: PrismaService,
     private readonly loggerService: LoggerService,
-  ) { }
+  ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
     try {
@@ -220,7 +220,9 @@ export class AuthCoreService {
           expiresIn: '15m',
         },
       );
-      this.logger.log(`✅ TempToken generated successfully for user: ${user.email}`);
+      this.logger.log(
+        `✅ TempToken generated successfully for user: ${user.email}`,
+      );
       return {
         requiresTwoFactor: true,
         userId: user.id,
@@ -305,8 +307,8 @@ export class AuthCoreService {
         this.configService.get<string>('JWT_EXPIRES_IN') || '15m';
       const refreshTokenExpiresIn = rememberMe
         ? this.configService.get<string>(
-          'JWT_REFRESH_REMEMBER_ME_EXPIRES_IN',
-        ) || '30d'
+            'JWT_REFRESH_REMEMBER_ME_EXPIRES_IN',
+          ) || '30d'
         : this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
 
       // Generate access token
@@ -668,13 +670,37 @@ export class AuthCoreService {
         profile: user,
       },
     });
-    const result = await this.login(validatedUser);
-    if ('requiresTwoFactor' in result) {
-      throw new BadRequestException(
-        '2FA required. Please complete setup first.',
-      );
-    }
-    return result;
+
+    // For OAuth login, bypass 2FA check and directly generate tokens
+    const tokens = await this.generateTokens(
+      validatedUser.id,
+      validatedUser.email,
+      validatedUser.roles || [],
+      false, // rememberMe default to false for OAuth
+    );
+
+    const { password, verificationToken, twoFactorSecret, ...userResult } =
+      validatedUser;
+
+    // Get primary provider
+    const primaryProvider = await this.prisma.authProvider.findFirst({
+      where: { userId: validatedUser.id, isPrimary: true },
+      select: { provider: true },
+    });
+
+    return {
+      user: {
+        id: userResult.id,
+        email: userResult.email,
+        name: userResult.name,
+        avatar: userResult.avatar,
+        provider: primaryProvider?.provider || 'google',
+        isEmailVerified: userResult.isEmailVerified,
+        isTwoFactorEnabled: userResult.isTwoFactorEnabled,
+      },
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
   }
 
   async facebookLogin(user: any): Promise<AuthResponse> {
@@ -690,13 +716,37 @@ export class AuthCoreService {
         profile: user,
       },
     });
-    const result = await this.login(validatedUser);
-    if ('requiresTwoFactor' in result) {
-      throw new BadRequestException(
-        '2FA required. Please complete setup first.',
-      );
-    }
-    return result;
+
+    // For OAuth login, bypass 2FA check and directly generate tokens
+    const tokens = await this.generateTokens(
+      validatedUser.id,
+      validatedUser.email,
+      validatedUser.roles || [],
+      false, // rememberMe default to false for OAuth
+    );
+
+    const { password, verificationToken, twoFactorSecret, ...userResult } =
+      validatedUser;
+
+    // Get primary provider
+    const primaryProvider = await this.prisma.authProvider.findFirst({
+      where: { userId: validatedUser.id, isPrimary: true },
+      select: { provider: true },
+    });
+
+    return {
+      user: {
+        id: userResult.id,
+        email: userResult.email,
+        name: userResult.name,
+        avatar: userResult.avatar,
+        provider: primaryProvider?.provider || 'facebook',
+        isEmailVerified: userResult.isEmailVerified,
+        isTwoFactorEnabled: userResult.isTwoFactorEnabled,
+      },
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
   }
 
   async githubLogin(user: any): Promise<AuthResponse> {
@@ -713,13 +763,37 @@ export class AuthCoreService {
         username: user.username,
       },
     });
-    const result = await this.login(validatedUser);
-    if ('requiresTwoFactor' in result) {
-      throw new BadRequestException(
-        '2FA required. Please complete setup first.',
-      );
-    }
-    return result;
+
+    // For OAuth login, bypass 2FA check and directly generate tokens
+    const tokens = await this.generateTokens(
+      validatedUser.id,
+      validatedUser.email,
+      validatedUser.roles || [],
+      false, // rememberMe default to false for OAuth
+    );
+
+    const { password, verificationToken, twoFactorSecret, ...userResult } =
+      validatedUser;
+
+    // Get primary provider
+    const primaryProvider = await this.prisma.authProvider.findFirst({
+      where: { userId: validatedUser.id, isPrimary: true },
+      select: { provider: true },
+    });
+
+    return {
+      user: {
+        id: userResult.id,
+        email: userResult.email,
+        name: userResult.name,
+        avatar: userResult.avatar,
+        provider: primaryProvider?.provider || 'github',
+        isEmailVerified: userResult.isEmailVerified,
+        isTwoFactorEnabled: userResult.isTwoFactorEnabled,
+      },
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
   }
 
   async requestPasswordReset(email: string): Promise<void> {
@@ -952,14 +1026,18 @@ export class AuthCoreService {
     try {
       const { tempToken, totpCode, rememberMe = false } = dto;
 
-      this.logger.log(`🔐 Starting TOTP verification process for tempToken validation`);
+      this.logger.log(
+        `🔐 Starting TOTP verification process for tempToken validation`,
+      );
 
       let payload: JwtPayload;
       try {
         payload = await this.jwtService.verifyAsync(tempToken, {
           secret: this.configService.get('JWT_SECRET'),
         });
-        this.logger.log(`✅ TempToken validated successfully - User ID: ${payload.sub}, Email: ${payload.email}`);
+        this.logger.log(
+          `✅ TempToken validated successfully - User ID: ${payload.sub}, Email: ${payload.email}`,
+        );
       } catch (err) {
         this.logger.error(`❌ TempToken validation failed: ${err.message}`);
         throw new UnauthorizedException('Invalid or expired temporary token');
@@ -979,11 +1057,15 @@ export class AuthCoreService {
       this.logger.log(`🔍 Verifying TOTP code for user: ${user.email}`);
       const isValidCode = await this.verifyTwoFactorCode(user.id, totpCode);
       if (!isValidCode) {
-        this.logger.error(`❌ Invalid TOTP code provided for user: ${user.email}`);
+        this.logger.error(
+          `❌ Invalid TOTP code provided for user: ${user.email}`,
+        );
         throw new UnauthorizedException('Invalid 2FA code');
       }
 
-      this.logger.log(`✅ TOTP code verified successfully, generating tokens for user: ${user.email}`);
+      this.logger.log(
+        `✅ TOTP code verified successfully, generating tokens for user: ${user.email}`,
+      );
       const tokens = await this.generateTokens(
         user.id,
         user.email,
@@ -993,7 +1075,8 @@ export class AuthCoreService {
         userAgent,
       );
 
-      const { password, verificationToken, twoFactorSecret, ...userResult } = user;
+      const { password, verificationToken, twoFactorSecret, ...userResult } =
+        user;
 
       // Get primary provider
       const primaryProvider = await this.prisma.authProvider.findFirst({
@@ -1010,7 +1093,9 @@ export class AuthCoreService {
         userAgent,
       );
 
-      this.logger.log(`🎉 TOTP login completed successfully for user: ${user.email}`);
+      this.logger.log(
+        `🎉 TOTP login completed successfully for user: ${user.email}`,
+      );
       return {
         user: {
           id: userResult.id,
@@ -1029,10 +1114,15 @@ export class AuthCoreService {
         error instanceof BadRequestException ||
         error instanceof UnauthorizedException
       ) {
-        this.logger.error(`❌ TOTP login failed with client error: ${error.message}`);
+        this.logger.error(
+          `❌ TOTP login failed with client error: ${error.message}`,
+        );
         throw error;
       }
-      this.logger.error(`💥 TOTP login failed with server error: ${error.message}`, error.stack);
+      this.logger.error(
+        `💥 TOTP login failed with server error: ${error.message}`,
+        error.stack,
+      );
       throw new InternalServerErrorException('Login failed');
     }
   }
@@ -1163,7 +1253,9 @@ export class AuthCoreService {
   ): Promise<boolean> {
     try {
       this.logger.log(`🔍 Verifying TOTP code for user ID: ${userId}`);
-      this.logger.debug(`📝 Raw TOTP code received: "${totpCode}" (length: ${totpCode?.length})`);
+      this.logger.debug(
+        `📝 Raw TOTP code received: "${totpCode}" (length: ${totpCode?.length})`,
+      );
 
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -1175,7 +1267,9 @@ export class AuthCoreService {
       }
 
       if (!user.twoFactorSecret) {
-        this.logger.error(`❌ No 2FA secret found for user: ${user.email} (ID: ${userId})`);
+        this.logger.error(
+          `❌ No 2FA secret found for user: ${user.email} (ID: ${userId})`,
+        );
         return false;
       }
 
@@ -1185,21 +1279,29 @@ export class AuthCoreService {
         .substring(0, 6) // Take first 6 digits
         .padStart(6, '0'); // Pad with leading zeros if needed
 
-      this.logger.debug(`🧹 Raw input: "${totpCode}", Cleaned code: "${cleanCode}"`);
+      this.logger.debug(
+        `🧹 Raw input: "${totpCode}", Cleaned code: "${cleanCode}"`,
+      );
 
       if (!/^\d{6}$/.test(cleanCode)) {
-        this.logger.error(`❌ Invalid code format: "${cleanCode}" (must be 6 digits)`);
+        this.logger.error(
+          `❌ Invalid code format: "${cleanCode}" (must be 6 digits)`,
+        );
         return false;
       }
 
       // Additional validation: check for obviously invalid codes (all same digit, sequential, etc.)
       const codeNum = parseInt(cleanCode, 10);
       if (codeNum < 100000) {
-        this.logger.warn(`⚠️ Code starts with zero: "${cleanCode}" - this might be user error`);
+        this.logger.warn(
+          `⚠️ Code starts with zero: "${cleanCode}" - this might be user error`,
+        );
       }
 
       const secret = user.twoFactorSecret;
-      this.logger.debug(`🔐 Using secret for verification: ${secret.substring(0, 4)}...`);
+      this.logger.debug(
+        `🔐 Using secret for verification: ${secret.substring(0, 4)}...`,
+      );
 
       const currentExpected = this.generateTOTPCode(secret);
       this.logger.debug(`🎯 Current expected code: ${currentExpected}`);
@@ -1212,7 +1314,9 @@ export class AuthCoreService {
       const isValid = this.checkTOTPCode(cleanCode, secret);
 
       if (isValid) {
-        this.logger.log(`✅ 2FA code verified for user: ${user.email} (current window)`);
+        this.logger.log(
+          `✅ 2FA code verified for user: ${user.email} (current window)`,
+        );
         return true;
       }
 
@@ -1236,7 +1340,9 @@ export class AuthCoreService {
       const serverTime = new Date().toISOString();
       const serverTimestamp = Math.floor(Date.now() / 1000);
 
-      this.logger.error(`❌ No matching TOTP code found for user: ${user.email}`);
+      this.logger.error(
+        `❌ No matching TOTP code found for user: ${user.email}`,
+      );
       this.logger.debug(`📊 Debug info:`);
       this.logger.debug(`   - Received code: ${cleanCode}`);
       this.logger.debug(`   - Current expected: ${currentExpected}`);
@@ -1245,12 +1351,22 @@ export class AuthCoreService {
 
       // Provide comprehensive debugging info for troubleshooting
       this.logger.warn(`⏰ Time sync debugging for user ${user.email}:`);
-      this.logger.warn(`   📱 Ensure authenticator app is time-synced with NTP server`);
-      this.logger.warn(`   🌍 Client timezone differences may cause this issue`);
+      this.logger.warn(
+        `   📱 Ensure authenticator app is time-synced with NTP server`,
+      );
+      this.logger.warn(
+        `   🌍 Client timezone differences may cause this issue`,
+      );
       this.logger.warn(`   ⚙️ Check device time vs ${serverTime}`);
-      this.logger.warn(`   🔧 Server expects code: ${currentExpected} (${new Date(currentTime * 1000).toLocaleTimeString()})`);
-      this.logger.warn(`   📊 Window checked: ±${windowSize * 30}s (${windowSize * 2 + 1} total time slots)`);
-      this.logger.warn(`   💡 Try regenerating the code or checking your device time settings`);
+      this.logger.warn(
+        `   🔧 Server expects code: ${currentExpected} (${new Date(currentTime * 1000).toLocaleTimeString()})`,
+      );
+      this.logger.warn(
+        `   📊 Window checked: ±${windowSize * 30}s (${windowSize * 2 + 1} total time slots)`,
+      );
+      this.logger.warn(
+        `   💡 Try regenerating the code or checking your device time settings`,
+      );
 
       return false;
     } catch (error) {
@@ -1313,7 +1429,10 @@ export class AuthCoreService {
         const expectedCode = this.generateTOTPCode(secret);
         return expectedCode === code;
       } catch (fallbackError) {
-        this.logger.error('Fallback TOTP verification also failed:', fallbackError.message);
+        this.logger.error(
+          'Fallback TOTP verification also failed:',
+          fallbackError.message,
+        );
         return false;
       }
     }
