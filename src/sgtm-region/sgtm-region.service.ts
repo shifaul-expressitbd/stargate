@@ -231,8 +231,9 @@ export class SgtmRegionService {
       {
         key: 'us-east',
         name: 'US East',
-        apiUrl: 'http://us-east.example.com',
-        apiKey: 'us-east-api-key',
+        apiUrl: 'http://localhost:4000',
+        apiKey:
+          'a730cb231049b818f22496b6c4708b0b774e43e24159d77b5450b178326b7436d865bcb3428d87069df6416df5908387619103965aed0206758d52717579fb07',
         description: 'US East Coast region',
         isDefault: false,
         isActive: false,
@@ -240,8 +241,9 @@ export class SgtmRegionService {
       {
         key: 'us-west',
         name: 'US West',
-        apiUrl: 'http://us-west.example.com',
-        apiKey: 'us-west-api-key',
+        apiUrl: 'http://localhost:4000',
+        apiKey:
+          'a730cb231049b818f22496b6c4708b0b774e43e24159d77b5450b178326b7436d865bcb3428d87069df6416df5908387619103965aed0206758d52717579fb07',
         description: 'US West Coast region',
         isDefault: false,
         isActive: false,
@@ -249,8 +251,9 @@ export class SgtmRegionService {
       {
         key: 'europe',
         name: 'Europe',
-        apiUrl: 'http://europe.example.com',
-        apiKey: 'europe-api-key',
+        apiUrl: 'http://localhost:4000',
+        apiKey:
+          'a730cb231049b818f22496b6c4708b0b774e43e24159d77b5450b178326b7436d865bcb3428d87069df6416df5908387619103965aed0206758d52717579fb07',
         description: 'European region',
         isDefault: false,
         isActive: false,
