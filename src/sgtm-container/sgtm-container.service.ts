@@ -120,20 +120,53 @@ export class SgtmContainerService {
         `Calling API at ${apiUrl} with args: ${JSON.stringify(args)}`,
       );
 
+      // Debug: Log the region config details
+      console.log('DEBUG: Region config:', {
+        region: region,
+        apiUrl: baseApiUrl,
+        apiKeyLength: regionConfig.apiKey ? regionConfig.apiKey.length : 0,
+        apiKeyPrefix: regionConfig.apiKey
+          ? regionConfig.apiKey.substring(0, 10)
+          : 'N/A',
+      });
+
+      // Debug: Log the request details
+      const requestHeaders = {
+        'x-api-key': regionConfig.apiKey,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      };
+      console.log('DEBUG: HTTP Request details:', {
+        method: 'POST',
+        url: apiUrl,
+        headers: {
+          ...requestHeaders,
+          'x-api-key':
+            '***' +
+            (regionConfig.apiKey
+              ? regionConfig.apiKey.substring(regionConfig.apiKey.length - 10)
+              : ''),
+        },
+        data: { args },
+      });
+
       // Call the API
       const response = await firstValueFrom(
         this.httpService.post(
           apiUrl,
           { args },
           {
-            headers: {
-              'x-api-key': regionConfig.apiKey,
-              Accept: 'application/json',
-              'Content-Type': 'application/json',
-            },
+            headers: requestHeaders,
           },
         ),
       );
+
+      // Debug: Log successful response
+      console.log('DEBUG: API Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data,
+      });
 
       const apiData = response.data;
       this.logger.log(
