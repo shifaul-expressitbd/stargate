@@ -3,69 +3,44 @@ import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class UrlConfigService {
-  constructor(private readonly configService: ConfigService) { }
+  constructor(private readonly configService: ConfigService) {}
 
   /**
-    * Get the backend URL based on NODE_ENV
-    * Production: Uses production domains
-    * Development: Uses localhost with appropriate ports
-    */
+   * Get the backend URL from environment variable
+   */
   getBackendUrl(): string {
-    const backendUrl = this.configService.get<string>('BACKEND_URL');
-
-    if (backendUrl) {
-      return backendUrl;
-    }
-
-    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
-
-    if (nodeEnv === 'production') {
-      // Use production default from environment
-      const productionBackendUrl = this.configService.get<string>('PRODUCTION_BACKEND_URL', 'http://31.97.62.51:5555');
-      return productionBackendUrl;
-    }
-
-    // Development defaults
-    return 'http://localhost:5555';
+    return this.configService.get<string>(
+      'BACKEND_URL',
+      'http://localhost:5555',
+    );
   }
 
   /**
-    * Get frontend URL
-    */
+   * Get frontend URL
+   */
   getFrontendUrl(): string {
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL');
-
-    if (frontendUrl) {
-      return frontendUrl;
-    }
-
-    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
-
-    if (nodeEnv === 'production') {
-      // Default production frontend from environment
-      const productionFrontendUrl = this.configService.get<string>('PRODUCTION_FRONTEND_URL', 'http://31.97.62.51:4173');
-      return productionFrontendUrl;
-    }
-
-    return 'http://localhost:4173'; // Development default
+    return this.configService.get<string>(
+      'FRONTEND_URL',
+      'http://localhost:4173',
+    );
   }
 
   /**
-    * Get base URL (alias for getBackendUrl for backward compatibility)
-    */
+   * Get base URL (alias for getBackendUrl for backward compatibility)
+   */
   getBaseUrl(): string {
     return this.getBackendUrl();
   }
 
   /**
-    * Get API URL (for internal API calls)
-    */
+   * Get API URL (for internal API calls)
+   */
   getApiUrl(): string {
     return this.getBackendUrl();
   }
 
   /**
-   * Get CORS origins based on environment
+   * Get CORS origins from environment variable
    */
   getCorsOrigins(): string[] {
     const corsEnv = this.configService.get<string>('CORS_ORIGIN');
@@ -74,17 +49,10 @@ export class UrlConfigService {
       return corsEnv.split(',').map((origin) => origin.trim());
     }
 
-    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
-
-    if (nodeEnv === 'production') {
-      return [this.getFrontendUrl(), this.getBackendUrl()];
-    }
-
-    // Development origins
+    // Default origins
     return [
-      this.getFrontendUrl(), // http://localhost:4173 (Vite preview)
-      'http://localhost:4000', // Bash runner API
-      'http://localhost:3000', // Alternative frontend
+      this.getFrontendUrl(),
+      this.getBackendUrl(),
       'https://accounts.google.com', // Google OAuth
     ];
   }
@@ -93,24 +61,21 @@ export class UrlConfigService {
    * Generate OAuth callback URL for a provider
    */
   getOAuthCallbackUrl(provider: string): string {
-    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
-
-    // Use backend URL for all environments
     const backendUrl = this.getBackendUrl();
     return `${backendUrl}/api/auth/${provider}/callback`;
   }
 
   /**
-    * Generate OAuth authorization URL
-    */
+   * Generate OAuth authorization URL
+   */
   getOAuthAuthUrl(provider: string): string {
     const backendUrl = this.getBackendUrl();
     return `${backendUrl}/api/auth/${provider}`;
   }
 
   /**
-    * Generate Swagger URL
-    */
+   * Generate Swagger URL
+   */
   getSwaggerUrl(): string {
     const backendUrl = this.getBackendUrl();
     return `${backendUrl}/api/docs`;

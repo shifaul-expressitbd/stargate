@@ -33,15 +33,15 @@ describe('PrismaService', () => {
   });
 
   describe('cleanDatabase', () => {
-    it('should throw error in production', async () => {
-      const originalEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'production';
+    it('should throw error when database cleaning is disabled', async () => {
+      const originalEnv = process.env.DATABASE_CLEANING_ENABLED;
+      process.env.DATABASE_CLEANING_ENABLED = 'false';
 
       await expect(service.cleanDatabase()).rejects.toThrow(
-        'Cannot clean database in production',
+        'Database cleaning is disabled',
       );
 
-      process.env.NODE_ENV = originalEnv;
+      process.env.DATABASE_CLEANING_ENABLED = originalEnv;
     });
   });
 });

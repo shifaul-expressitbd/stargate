@@ -29,8 +29,11 @@ export class PrismaService
   async onModuleInit() {
     this.logger.log('Connecting to database...');
 
-    // Log queries in development
-    if (this.configService.get<string>('NODE_ENV') === 'development') {
+    // Log queries when debug level is enabled
+    const logLevel = this.configService
+      .get<string>('LOG_LEVEL', 'info')
+      .toLowerCase();
+    if (logLevel === 'debug') {
       this.$on('query' as never, (e: any) => {
         this.logger.debug(
           `Query: ${e.query} - Params: ${e.params} - Duration: ${e.duration}ms`,
@@ -53,8 +56,12 @@ export class PrismaService
   }
 
   async cleanDatabase() {
-    if (this.configService.get<string>('NODE_ENV') === 'production') {
-      throw new Error('Cannot clean database in production');
+    const cleaningEnabled = this.configService.get<string>(
+      'DATABASE_CLEANING_ENABLED',
+      'false',
+    );
+    if (cleaningEnabled !== 'true') {
+      throw new Error('Database cleaning is disabled');
     }
 
     this.logger.warn('Cleaning database...');

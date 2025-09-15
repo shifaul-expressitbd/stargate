@@ -4,7 +4,7 @@ import * as Joi from 'joi';
 export const validationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
-    .default('development'),
+    .default('production'),
 
   // Google Configuration (OAuth & Tag Manager)
   GOOGLE_CLIENT_ID: Joi.string().required(),

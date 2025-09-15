@@ -21,7 +21,8 @@ export class CsrfMiddleware implements NestMiddleware {
       cookieName: 'csrf-token',
       cookieOptions: {
         httpOnly: false,
-        secure: this.configService.get<string>('NODE_ENV') === 'production',
+        secure:
+          this.configService.get<string>('HTTPS_ENABLED', 'false') === 'true',
         sameSite: 'strict',
       },
     });
@@ -37,7 +38,8 @@ export class CsrfMiddleware implements NestMiddleware {
       // Set the token in a cookie
       res.cookie('csrf-token', token, {
         httpOnly: false,
-        secure: this.configService.get<string>('NODE_ENV') === 'production',
+        secure:
+          this.configService.get<string>('HTTPS_ENABLED', 'false') === 'true',
         sameSite: 'strict',
       });
       return next();

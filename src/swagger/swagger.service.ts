@@ -14,16 +14,21 @@ export class SwaggerService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly app: INestApplication,
     private readonly urlConfigService?: UrlConfigService,
-  ) { }
+  ) {}
 
   onModuleInit(): void {
-    if (this.configService.get('NODE_ENV') !== 'production') {
+    const swaggerEnabled = this.configService.get<string>(
+      'SWAGGER_ENABLED',
+      'false',
+    );
+    if (swaggerEnabled === 'true') {
       this.setupSwagger();
     }
   }
 
   private setupSwagger(): void {
-    const baseUrl = this.urlConfigService?.getBaseUrl() || 'http://localhost:5555';
+    const baseUrl =
+      this.urlConfigService?.getBaseUrl() || 'http://localhost:5555';
     const documentBuilder = createSwaggerConfig(baseUrl);
 
     // Add tags in the exact order specified

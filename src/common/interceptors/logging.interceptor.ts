@@ -50,7 +50,10 @@ export class LoggingInterceptor implements NestInterceptor {
           this.logger.log(
             `⬅️  ${method} ${url} - ${responseTime}ms - User: ${user?.id || 'anonymous'}`,
           );
-          if (this.configService.get<string>('NODE_ENV') === 'development') {
+          const logLevel = this.configService
+            .get<string>('LOG_LEVEL', 'info')
+            .toLowerCase();
+          if (logLevel === 'debug') {
             // Use safe stringify to handle circular references
             this.logger.debug(`Response: ${this.safeStringify(data)}`);
           }
