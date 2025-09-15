@@ -27,7 +27,7 @@ import { MetaCapiContainerService } from './meta-capi-container.service';
 
 @ApiTags('mCAPI-Containers')
 @ApiExtraModels(CreateMetaCapiContainerDto, UpdateMetaCapiContainerConfigDto)
-@Controller('api/meta-capi-containers')
+@Controller('meta-capi-containers')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('JWT-auth')
 export class MetaCapiContainerController {

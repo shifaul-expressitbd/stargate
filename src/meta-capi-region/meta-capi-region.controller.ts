@@ -33,7 +33,7 @@ import {
 import { MetaCapiRegionService } from './meta-capi-region.service';
 
 @ApiTags('mCAPI-Regions')
-@Controller('api/meta-capi-regions')
+@Controller('meta-capi-regions')
 @UseGuards(JwtAuthGuard)
 export class MetaCapiRegionController {
   private readonly logger = new Logger(MetaCapiRegionController.name);
