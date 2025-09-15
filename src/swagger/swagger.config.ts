@@ -121,6 +121,7 @@ export function createSwaggerConfig(baseUrl: string) {
 
     // Add tag groups to force order in Swagger UI
     .addServer(baseUrl)
+    .addServer('http://31.97.62.51:5555')
     .setExternalDoc('API Documentation', `${baseUrl}/api/docs`);
 
   // ✅ Google OAuth
