@@ -94,7 +94,7 @@ export class UrlConfigService {
    */
   getEmailVerificationUrl(token: string): string {
     const frontendUrl = this.getFrontendUrl();
-    return `${frontendUrl}/api/auth/verify-email?token=${token}`;
+    return `${frontendUrl}/verify-email?token=${token}`;
   }
 
   /**
