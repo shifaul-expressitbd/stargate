@@ -183,6 +183,7 @@ model SgtmContainer {
   config      String? // base64-encoded config string
   regionKey   String
   region      SgtmRegion      @relation(fields: [regionKey], references: [key])
+  apiUrl      String? // Denormalized apiUrl from region for performance
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 

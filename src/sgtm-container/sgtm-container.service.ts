@@ -43,6 +43,12 @@ export class SgtmContainerService {
 
     this.logger.debug(`Using region: ${region} for container creation`);
 
+    // Get region config to populate apiUrl
+    const regionConfig = await this.sgtmRegionService.findByKey(region);
+    if (!regionConfig) {
+      throw new BadRequestException(`Region ${region} not configured properly`);
+    }
+
     // Create DB entry with PENDING status (fullName will be set from API response)
     const container = await this.prisma.sgtmContainer.create({
       data: {
@@ -53,6 +59,7 @@ export class SgtmContainerService {
         subdomain: dto.subdomain,
         config: dto.config,
         regionKey: region,
+        apiUrl: regionConfig.apiUrl,
       },
     });
 
@@ -241,6 +248,7 @@ export class SgtmContainerService {
       throw new NotFoundException('Container not found or access denied');
     }
 
+    // Return container with stored apiUrl (no additional query needed)
     return container;
   }
 
