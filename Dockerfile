@@ -5,6 +5,7 @@ COPY package.json .
 RUN npm install
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 COPY . .
+RUN npx prisma generate
 RUN npm run build
 EXPOSE 5555
 USER appuser
