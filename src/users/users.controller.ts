@@ -177,4 +177,44 @@ export class UsersController {
       responseData,
     );
   }
+
+  @UseGuards(JwtAuthGuard, ImpersonationGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Get('metrics')
+  @ApiOperation({ summary: 'Get user container metrics' })
+  @ApiResponse({
+    status: 200,
+    description: 'Metrics retrieved successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Metrics retrieved successfully',
+        data: {
+          totalContainers: 5,
+          activeContainers: 3,
+          disabledContainers: 2,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+    schema: {
+      example: {
+        success: false,
+        message: 'Unauthorized',
+        error: 'UNAUTHORIZED',
+        code: 'UNAUTHORIZED',
+      },
+    },
+  })
+  async getMetrics(@User() user: any): Promise<ApiResponse> {
+    const metrics = await this.usersService.getMetrics(user.id);
+
+    return this.createSuccessResponse(
+      'Metrics retrieved successfully',
+      metrics,
+    );
+  }
 }

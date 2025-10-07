@@ -239,4 +239,44 @@ export class UsersService {
     // This can be extended later if API key support is needed
     return null;
   }
+
+  async getMetrics(userId: string) {
+    // Get counts for sgtm containers
+    const sgtmTotal = await this.prisma.sgtmContainer.count({
+      where: { userId },
+    });
+
+    const sgtmActive = await this.prisma.sgtmContainer.count({
+      where: { userId, status: 'RUNNING' },
+    });
+
+    const sgtmDisabled = await this.prisma.sgtmContainer.count({
+      where: {
+        userId,
+        status: { in: ['STOPPED', 'ERROR', 'DELETED'] },
+      },
+    });
+
+    // Get counts for meta capi containers
+    const mcapiTotal = await this.prisma.metaCapiContainer.count({
+      where: { userId },
+    });
+
+    const mcapiActive = await this.prisma.metaCapiContainer.count({
+      where: { userId, status: 'RUNNING' },
+    });
+
+    const mcapiDisabled = await this.prisma.metaCapiContainer.count({
+      where: {
+        userId,
+        status: { in: ['STOPPED', 'ERROR', 'DELETED'] },
+      },
+    });
+
+    return {
+      totalContainers: sgtmTotal + mcapiTotal,
+      activeContainers: sgtmActive + mcapiActive,
+      disabledContainers: sgtmDisabled + mcapiDisabled,
+    };
+  }
 }
